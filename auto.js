@@ -1,107 +1,115 @@
-// ==UserScript==
-// @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.9.30.1
-// @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
-// @author       Brian
-// @match        https://*.bing.com/*
-// @match        https://login.live.com/oauth20_desktop.srf*
-// @license      MIT
-// @icon         https://www.bing.com/favicon.ico
-// @connect      top.baidu.com
-// @connect      www.toutiao.com
-// @connect      r.inews.qq.com
-// @connect      m.weibo.cn
-// @connect      login.live.com
-// @connect      prod.rewardsplatform.microsoft.com
-// @run-at       document-end
-// @grant        GM_registerMenuCommand
-// @grant        GM_setValue
-// @grant        GM_getValue
-// @grant        GM_xmlhttpRequest
-// @grant        GM_notification
-// @grant        GM_log
-// @grant        GM_openInTab
-// @grant        GM_saveTab
-// @grant        GM_closeTab
-// @grant        GM_deleteValue
-// @downloadURL  https://raw.githubusercontent.com/lewenlong/rewards/main/auto.js
-// @updateURL    https://raw.githubusercontent.com/lewenlong/rewards/main/auto.js
-// ==/UserScript==
+ ==UserScript==
+ @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
+ @version      26.9.30.1
+ @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
+ @author       Brian
+ @match        https.bing.com
+ @match        httpslogin.live.comoauth20_desktop.srf
+ @license      MIT
+ @icon         httpswww.bing.comfavicon.ico
+ @connect      top.baidu.com
+ @connect      www.toutiao.com
+ @connect      r.inews.qq.com
+ @connect      m.weibo.cn
+ @connect      login.live.com
+ @connect      prod.rewardsplatform.microsoft.com
+ @connect      news.google.com
+ @connect      trends.google.com
+ @connect      wikimedia.org
+ @connect      hacker-news.firebaseio.com
+ @run-at       document-end
+ @grant        GM_registerMenuCommand
+ @grant        GM_setValue
+ @grant        GM_getValue
+ @grant        GM_xmlhttpRequest
+ @grant        GM_notification
+ @grant        GM_log
+ @grant        GM_openInTab
+ @grant        GM_saveTab
+ @grant        GM_closeTab
+ @grant        GM_deleteValue
+ @downloadURL  httpsgitee.comidbb98microsoft-bing-rewards-daily-task-scriptrawmasterBingRewards.user.js
+ @updateURL    httpsgitee.comidbb98microsoft-bing-rewards-daily-task-scriptrawmasterBingRewards.user.js
+ ==UserScript==
 
 'use strict';
 
-// 配置参数
+ 配置参数
 
-// 用户可配置参数表：参数名 → { key: GM 存储键, default: 默认值 }
-// CONFIG 的 getter/setter、设置页读取、配置导出/导入均以此表为唯一定义处
+ 用户可配置参数表：参数名 → { key GM 存储键, default 默认值 }
+ CONFIG 的 gettersetter、设置页读取、配置导出导入均以此表为唯一定义处
 const CONFIG_SCHEMA = {
-    // 搜索form参数，⚠️ 手动进入https://cn.bing.com，确保登录后执行几次搜索，根据实际地址栏的form=xxx修改
-    searchFormParam: { key: 'customSearchFormParam', default: 'QBLH' },
-    // 面板默认是否收缩 (true=收缩, false=展开)
-    panelDefaultCollapsed: { key: 'customPanelDefaultCollapsed', default: false },
-    // 最大搜索次数
-    maxSearches: { key: 'customMaxSearches', default: 20 },
-    // 是否随机加词，如：人工智能发展  -->  人工1智能发z展
-    randomAddSearchWords: { key: 'customRandomAddSearchWords', default: false },
-    // 随机加词因子，控制加词的概率（0-1之间的小数），默认为0.3即30%概率添加字符
-    randomAddSearchWordsFactor: { key: 'customRandomAddSearchWordsFactor', default: 0.3 },
-    // 是否随机截词，如：人工1智能发z展  --> 人工1智
-    randomCutSearchWords: { key: 'customRandomCutSearchWords', default: false },
-    // 随机截词因子，控制截取的概率（0-1之间的小数），默认为0.2即20%概率截取字符
-    randomCutSearchWordsFactor: { key: 'customRandomCutSearchWordsFactor', default: 0.2 },
-    // 是否点击搜索结果链接
-    clickSearchResults: { key: 'customClickSearchResults', default: false },
-    // 暂停间隔范围：每执行多少次搜索后暂停一次的区间
-    pauseIntervalMin: { key: 'customPauseIntervalMin', default: 2 },
-    pauseIntervalMax: { key: 'customPauseIntervalMax', default: 3 },
-    // 暂停时间范围（毫秒）：每次暂停的持续时间区间
-    pauseTimeMin: { key: 'customPauseTimeMin', default: 20 * 60 * 1000 },
-    pauseTimeMax: { key: 'customPauseTimeMax', default: 30 * 60 * 1000 },
-    // 搜索延迟范围（毫秒）：两次搜索之间的随机延迟区间
-    minDelay: { key: 'customMinDelay', default: 15 * 1000 },
-    maxDelay: { key: 'customMaxDelay', default: 30 * 1000 },
-    // 任务点击相关配置（日常任务 + 每日活动共用）
-    tasksScrollDelay: { key: 'customTasksScrollDelay', default: 3000 },
-    tasksMaxRetries: { key: 'customTasksMaxRetries', default: 0 },
-    tasksRetryDelay: { key: 'customTasksRetryDelay', default: 2000 },
-    tasksCloseTabDelay: { key: 'customTasksCloseTabDelay', default: 1500 },
-    // 自动点击任务总开关（earn 日常任务 + dashboard 每日活动区域未完成任务共用，默认关闭）
-    autoClickTasks: { key: 'customAutoClickTasks', default: false },
-    // APP 端每日签到开关
-    appCheckInEnabled: { key: 'customAppCheckInEnabled', default: false },
-    // APP 端资讯阅读开关
-    appReadEnabled: { key: 'customAppReadEnabled', default: false },
-    // APP 端资讯阅读每日上报上限（篇）
-    appReadDailyLimit: { key: 'customAppReadDailyLimit', default: 10 },
-    // APP 端设备标识预设（可选值见 APP_CLIENT_PRESETS，默认第一项）
-    appUaPreset: { key: 'customAppUaPreset', default: 'android-16-xiaomi15' }
+     搜索form参数，⚠️ 手动进入httpscn.bing.com，确保登录后执行几次搜索，根据实际地址栏的form=xxx修改
+    searchFormParam { key 'customSearchFormParam', default 'QBLH' },
+     搜索地区（影响 Bing 搜索语言及热词来源）
+    executionRegion { key 'customExecutionRegion', default 'cn' },
+     每次任务随机搜索次数的下限
+    minSearches { key 'customMinSearches', default 15 },
+     面板默认是否收缩 (true=收缩, false=展开)
+    panelDefaultCollapsed { key 'customPanelDefaultCollapsed', default false },
+     最大搜索次数
+    maxSearches { key 'customMaxSearches', default 20 },
+     是否随机加词，如：人工智能发展  --  人工1智能发z展
+    randomAddSearchWords { key 'customRandomAddSearchWords', default false },
+     随机加词因子，控制加词的概率（0-1之间的小数），默认为0.3即30%概率添加字符
+    randomAddSearchWordsFactor { key 'customRandomAddSearchWordsFactor', default 0.3 },
+     是否随机截词，如：人工1智能发z展  -- 人工1智
+    randomCutSearchWords { key 'customRandomCutSearchWords', default false },
+     随机截词因子，控制截取的概率（0-1之间的小数），默认为0.2即20%概率截取字符
+    randomCutSearchWordsFactor { key 'customRandomCutSearchWordsFactor', default 0.2 },
+     是否点击搜索结果链接
+    clickSearchResults { key 'customClickSearchResults', default false },
+     暂停间隔范围：每执行多少次搜索后暂停一次的区间
+    pauseIntervalMin { key 'customPauseIntervalMin', default 2 },
+    pauseIntervalMax { key 'customPauseIntervalMax', default 3 },
+     暂停时间范围（毫秒）：每次暂停的持续时间区间
+    pauseTimeMin { key 'customPauseTimeMin', default 20  60  1000 },
+    pauseTimeMax { key 'customPauseTimeMax', default 30  60  1000 },
+     搜索延迟范围（毫秒）：两次搜索之间的随机延迟区间
+    minDelay { key 'customMinDelay', default 15  1000 },
+    maxDelay { key 'customMaxDelay', default 30  1000 },
+     任务点击相关配置（日常任务 + 每日活动共用）
+    tasksScrollDelay { key 'customTasksScrollDelay', default 3000 },
+    tasksMaxRetries { key 'customTasksMaxRetries', default 0 },
+    tasksRetryDelay { key 'customTasksRetryDelay', default 2000 },
+    tasksCloseTabDelay { key 'customTasksCloseTabDelay', default 1500 },
+     自动点击任务总开关（earn 日常任务 + dashboard 每日活动区域未完成任务共用，默认关闭）
+    autoClickTasks { key 'customAutoClickTasks', default false },
+     APP 端每日签到开关
+    appCheckInEnabled { key 'customAppCheckInEnabled', default false },
+     APP 端资讯阅读开关
+    appReadEnabled { key 'customAppReadEnabled', default false },
+     APP 端资讯阅读每日上报上限（篇）
+    appReadDailyLimit { key 'customAppReadDailyLimit', default 10 },
+     APP 端设备标识预设（可选值见 APP_CLIENT_PRESETS，默认第一项）
+    appUaPreset { key 'customAppUaPreset', default 'android-16-xiaomi15' }
 };
 
 const CONFIG = {
-    // ==================== 脚本基础信息 ====================
+     ==================== 脚本基础信息 ====================
 
-    // 版本号（动态从GM_info获取）
+     版本号（动态从GM_info获取）
     get version() {
-        return GM_info?.script?.version || '1.0.0';
+        return GM_info.script.version  '1.0.0';
     },
 
-    // ==================== 内部固定参数 (不建议修改) ====================
+     ==================== 内部固定参数 (不建议修改) ====================
 
-    // 网络请求超时时间（毫秒）：热词抓取与 APP 端接口共用的最大等待时间
-    requestTimeout: 20 * 1000,
+     网络请求超时时间（毫秒）：热词抓取与 APP 端接口共用的最大等待时间
+    requestTimeout 20  1000,
 
-    // 任务页「脚本已注入但超时未完成」的连续次数阈值，达到后当天不再跳转该页面
-    // （脚本未注入则首次即放弃，不受此阈值影响）
-    taskFlowIncompleteLimit: 3,
+     任务页「脚本已注入但超时未完成」的连续次数阈值，达到后当天不再跳转该页面
+     （脚本未注入则首次即放弃，不受此阈值影响）
+    taskFlowIncompleteLimit 3,
 
-    // 启动参数标记数组
-    startParams: ['bingTask', 'runSearch', 'initiateSearch', 'bingSearchMode', 'autoSearch', 'startTask', 'executeSearch', 'launchSearch', 'beginSearch', 'processSearch', 'bingQuest', 'dailyTask', 'searchFlow', 'rewardsTask', 'bingBrowse', 'autoFlow']
+     启动参数标记数组
+    startParams ['bingTask', 'runSearch', 'initiateSearch', 'bingSearchMode', 'autoSearch', 'startTask', 'executeSearch', 'launchSearch', 'beginSearch', 'processSearch', 'bingQuest', 'dailyTask', 'searchFlow', 'rewardsTask', 'bingBrowse', 'autoFlow']
 };
 
-// 依据参数表为 CONFIG 生成与 GM 存储一一绑定的 getter/setter（键名前缀 custom*）
-Object.entries(CONFIG_SCHEMA).forEach(([name, def]) => {
+ 依据参数表为 CONFIG 生成与 GM 存储一一绑定的 gettersetter（键名前缀 custom）
+Object.entries(CONFIG_SCHEMA).forEach(([name, def]) = {
     Object.defineProperty(CONFIG, name, {
-        enumerable: true,
+        enumerable true,
         get() {
             return GM_getValue(def.key, def.default);
         },
@@ -111,144 +119,162 @@ Object.entries(CONFIG_SCHEMA).forEach(([name, def]) => {
     });
 });
 
-// 状态管理
+ 与 New.js 对齐的地区配置。保留 old.js 的设备预设与任务流实现，
+ 仅将搜索语言、Bing 落点和热词来源按所选地区切换。
+const EXECUTION_REGIONS = {
+    cn { label '中国大陆', bingHost 'cn.bing.com', language 'zh-CN', country 'CN', newsCeid 'CNzh-Hans' },
+    tw { label '台湾', bingHost 'www.bing.com', language 'zh-TW', country 'TW', newsCeid 'TWzh-Hant' },
+    hk { label '香港', bingHost 'www.bing.com', language 'zh-HK', country 'HK', newsCeid 'HKzh-Hant' },
+    us { label '美国', bingHost 'www.bing.com', language 'en-US', country 'US', newsCeid 'USen' },
+    gb { label '英国', bingHost 'www.bing.com', language 'en-GB', country 'GB', newsCeid 'GBen' },
+    jp { label '日本', bingHost 'www.bing.com', language 'ja-JP', country 'JP', newsCeid 'JPja' },
+    de { label '德国', bingHost 'www.bing.com', language 'de-DE', country 'DE', newsCeid 'DEde' },
+    fr { label '法国', bingHost 'www.bing.com', language 'fr-FR', country 'FR', newsCeid 'FRfr' }
+};
+
+function getExecutionRegion() {
+    const key = String(CONFIG.executionRegion  'cn').toLowerCase();
+    return EXECUTION_REGIONS[key]  EXECUTION_REGIONS.cn;
+}
+
+ 状态管理
 const state = {
-    searchWords: [],
-    statusPanel: null,
-    timers: new Set(),
-    isRunning: false,
-    countdownStartTime: 0,
-    countdownDuration: 0,
-    // 面板数据单一数据源（当前搜索词 / 暂停剩余秒），显示内容统一由 derivePanelStatus 派生
-    panel: { currentWord: '', pauseTimeLeft: null },
-    isPanelCollapsed: false,
-    // 任务点击相关状态（earn 日常任务 / dashboard 每日活动共用流程）
-    taskFlows: {
-        earn: { clicked: new Set(), retryCount: 0, processing: false },
-        dashboard: { clicked: new Set(), retryCount: 0, processing: false }
+    searchWords [],
+    statusPanel null,
+    timers new Set(),
+    isRunning false,
+    countdownStartTime 0,
+    countdownDuration 0,
+     面板数据单一数据源（当前搜索词  暂停剩余秒），显示内容统一由 derivePanelStatus 派生
+    panel { currentWord '', pauseTimeLeft null },
+    isPanelCollapsed false,
+     任务点击相关状态（earn 日常任务  dashboard 每日活动共用流程）
+    taskFlows {
+        earn { clicked new Set(), retryCount 0, processing false },
+        dashboard { clicked new Set(), retryCount 0, processing false }
     },
-    // 面板渲染状态缓存（避免每秒整块重排）
-    panelSignature: '',
-    panelPageVisible: null,
-    // APP 端任务相关状态（签到 + 资讯阅读）
-    appToken: '',
-    appTasks: {
-        checkInDone: false,
-        checkInPoints: 0,
-        readDone: false,
-        readCurrent: 0,
-        readTotal: 0,
-        authRequired: false,
-        // 当日阅读进度是否已从服务端同步（页面生命周期内，避免重复查询）
-        readProgressSynced: false,
-        // 随机阅读是否正在执行（面板状态提示）
-        readRunning: false
+     面板渲染状态缓存（避免每秒整块重排）
+    panelSignature '',
+    panelPageVisible null,
+     APP 端任务相关状态（签到 + 资讯阅读）
+    appToken '',
+    appTasks {
+        checkInDone false,
+        checkInPoints 0,
+        readDone false,
+        readCurrent 0,
+        readTotal 0,
+        authRequired false,
+         当日阅读进度是否已从服务端同步（页面生命周期内，避免重复查询）
+        readProgressSynced false,
+         随机阅读是否正在执行（面板状态提示）
+        readRunning false
     }
 };
 
-// ==================== APP 端任务模块（每日签到 + 资讯阅读） ====================
+ ==================== APP 端任务模块（每日签到 + 资讯阅读） ====================
 
-// APP 端协议常量（Rewards Platform 移动端接口契约）
+ APP 端协议常量（Rewards Platform 移动端接口契约）
 const REWARDS_APP_SPEC = {
-    endpoints: {
-        activityReport: 'https://prod.rewardsplatform.microsoft.com/dapi/me/activities',
-        // 阅读进度查询基址，实际请求按当前设备标识的 channel 拼接（见 getAccountProfileUrl）
-        accountProfile: 'https://prod.rewardsplatform.microsoft.com/dapi/me',
-        tokenIssue: 'https://login.live.com/oauth20_token.srf',
-        authorizePage: 'https://login.live.com/oauth20_authorize.srf?client_id=0000000040170455&response_type=code&scope=service::prod.rewardsplatform.microsoft.com::MBI_SSL&redirect_uri=https://login.live.com/oauth20_desktop.srf'
+    endpoints {
+        activityReport 'httpsprod.rewardsplatform.microsoft.comdapimeactivities',
+         阅读进度查询基址，实际请求按当前设备标识的 channel 拼接（见 getAccountProfileUrl）
+        accountProfile 'httpsprod.rewardsplatform.microsoft.comdapime',
+        tokenIssue 'httpslogin.live.comoauth20_token.srf',
+        authorizePage 'httpslogin.live.comoauth20_authorize.srfclient_id=0000000040170455&response_type=code&scope=serviceprod.rewardsplatform.microsoft.comMBI_SSL&redirect_uri=httpslogin.live.comoauth20_desktop.srf'
     },
-    // 活动上报类型码：103=每日签到，101=资讯阅读
-    activities: {
-        checkIn: 103,
-        readArticle: 101
+     活动上报类型码：103=每日签到，101=资讯阅读
+    activities {
+        checkIn 103,
+        readArticle 101
     },
-    offers: {
-        readArticle: 'ENUS_readarticle3_30points'
+    offers {
+        readArticle 'ENUS_readarticle3_30points'
     },
-    // 上报区域（国区固定）
-    region: 'cn',
-    // 令牌超过该天数后预防性续期
-    tokenMaxAgeDays: 7
+     上报区域（国区固定）
+    region 'cn',
+     令牌超过该天数后预防性续期
+    tokenMaxAgeDays 7
 };
 
-// APP 端设备标识预设表：channel 决定请求通道，version 同时决定 x-rewards-appid 与 UA 尾部构建号
-// 维护约定：channel / version / userAgent 尾部构建号三者必须一致
+ APP 端设备标识预设表：channel 决定请求通道，version 同时决定 x-rewards-appid 与 UA 尾部构建号
+ 维护约定：channel  version  userAgent 尾部构建号三者必须一致
 const APP_CLIENT_PRESETS = [
     {
-        id: 'android-16-xiaomi15',
-        label: 'Android 16 · Xiaomi 15 Pro',
-        note: '默认，与旧版本行为一致',
-        channel: 'SAAndroid',
-        version: '32.6.2110003560',
-        userAgent: 'Mozilla/5.0 (Linux; Android 16; Xiaomi 15 Pro Build/BP1A.250605.012; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/32.6.2110003560'
+        id 'android-16-xiaomi15',
+        label 'Android 16 · Xiaomi 15 Pro',
+        note '默认，与旧版本行为一致',
+        channel 'SAAndroid',
+        version '32.6.2110003560',
+        userAgent 'Mozilla5.0 (Linux; Android 16; Xiaomi 15 Pro BuildBP1A.250605.012; ) AppleWebKit537.36 (KHTML, like Gecko) Version4.0 Chrome144.0.7559.132 Mobile Safari537.36 BingSapphire32.6.2110003560'
     },
     {
-        id: 'android-15-pixel9',
-        label: 'Android 15 · Pixel 9 Pro',
-        note: '谷歌原生机型，系统版本略低',
-        channel: 'SAAndroid',
-        version: '32.6.2110003560',
-        userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro Build/AP4A.250105.002; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/32.6.2110003560'
+        id 'android-15-pixel9',
+        label 'Android 15 · Pixel 9 Pro',
+        note '谷歌原生机型，系统版本略低',
+        channel 'SAAndroid',
+        version '32.6.2110003560',
+        userAgent 'Mozilla5.0 (Linux; Android 15; Pixel 9 Pro BuildAP4A.250105.002; ) AppleWebKit537.36 (KHTML, like Gecko) Version4.0 Chrome144.0.7559.132 Mobile Safari537.36 BingSapphire32.6.2110003560'
     },
     {
-        id: 'android-14-galaxy-s24',
-        label: 'Android 14 · Galaxy S24',
-        note: '三星机型，系统版本较低',
-        channel: 'SAAndroid',
-        version: '32.6.2110003560',
-        userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S9210 Build/UP1A.231005.007; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/32.6.2110003560'
+        id 'android-14-galaxy-s24',
+        label 'Android 14 · Galaxy S24',
+        note '三星机型，系统版本较低',
+        channel 'SAAndroid',
+        version '32.6.2110003560',
+        userAgent 'Mozilla5.0 (Linux; Android 14; SM-S9210 BuildUP1A.231005.007; ) AppleWebKit537.36 (KHTML, like Gecko) Version4.0 Chrome144.0.7559.132 Mobile Safari537.36 BingSapphire32.6.2110003560'
     },
     {
-        id: 'ios-18-iphone16',
-        label: 'iOS 18 · iPhone 16 Pro',
-        note: 'iOS 通道（SAIOS），个别账号可能不适用',
-        channel: 'SAIOS',
-        version: '32.6.2110003560',
-        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1 BingSapphire/32.6.2110003560'
+        id 'ios-18-iphone16',
+        label 'iOS 18 · iPhone 16 Pro',
+        note 'iOS 通道（SAIOS），个别账号可能不适用',
+        channel 'SAIOS',
+        version '32.6.2110003560',
+        userAgent 'Mozilla5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit605.1.15 (KHTML, like Gecko) Version18.5 Mobile15E148 Safari604.1 BingSapphire32.6.2110003560'
     }
 ];
 
-// 默认预设（与 CONFIG_SCHEMA.appUaPreset 的默认值保持一致）
+ 默认预设（与 CONFIG_SCHEMA.appUaPreset 的默认值保持一致）
 const APP_CLIENT_DEFAULT_PRESET = APP_CLIENT_PRESETS[0].id;
 
-/**
- * 读取当前生效的 APP 端设备标识（配置值非法时回退默认预设）
- * @returns {{presetId:string,label:string,channel:string,appId:string,userAgent:string}}
- */
+
+  读取当前生效的 APP 端设备标识（配置值非法时回退默认预设）
+  @returns {{presetIdstring,labelstring,channelstring,appIdstring,userAgentstring}}
+ 
 function getAppClient() {
-    const preset = APP_CLIENT_PRESETS.find(item => item.id === CONFIG.appUaPreset) || APP_CLIENT_PRESETS[0];
+    const preset = APP_CLIENT_PRESETS.find(item = item.id === CONFIG.appUaPreset)  APP_CLIENT_PRESETS[0];
     return {
-        presetId: preset.id,
-        label: preset.label,
-        channel: preset.channel,
-        appId: `${preset.channel}/${preset.version}`,
-        userAgent: preset.userAgent
+        presetId preset.id,
+        label preset.label,
+        channel preset.channel,
+        appId `${preset.channel}${preset.version}`,
+        userAgent preset.userAgent
     };
 }
 
-// 阅读进度查询地址（channel 随设备标识切换，options 为移动端固定参数）
+ 阅读进度查询地址（channel 随设备标识切换，options 为移动端固定参数）
 function getAccountProfileUrl() {
-    return `${REWARDS_APP_SPEC.endpoints.accountProfile}?channel=${getAppClient().channel}&options=613`;
+    return `${REWARDS_APP_SPEC.endpoints.accountProfile}channel=${getAppClient().channel}&options=613`;
 }
 
-/**
- * GM_xmlhttpRequest 的统一 Promise 封装（APP 端接口与热词抓取共用）
- * 非 2xx 响应抛出携带状态码的错误，供 APP 层识别 401 等场景
- * @param {{method?:string,url:string,headers?:object,data?:string,swallowError?:boolean}} options
- *        swallowError=true 时请求失败 resolve 为空字符串（热词抓取语义：单源失败不中断整体）
- * @returns {Promise<string>}
- */
+
+  GM_xmlhttpRequest 的统一 Promise 封装（APP 端接口与热词抓取共用）
+  非 2xx 响应抛出携带状态码的错误，供 APP 层识别 401 等场景
+  @param {{methodstring,urlstring,headersobject,datastring,swallowErrorboolean}} options
+         swallowError=true 时请求失败 resolve 为空字符串（热词抓取语义：单源失败不中断整体）
+  @returns {Promisestring}
+ 
 function request(options) {
     const swallowError = Boolean(options.swallowError);
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) = {
         GM_xmlhttpRequest({
-            method: options.method || 'GET',
-            url: options.url,
-            headers: options.headers || {},
-            data: options.data,
-            timeout: CONFIG.requestTimeout,
-            onload: res => {
-                if (res.status >= 200 && res.status < 300) {
+            method options.method  'GET',
+            url options.url,
+            headers options.headers  {},
+            data options.data,
+            timeout CONFIG.requestTimeout,
+            onload res = {
+                if (res.status = 200 && res.status  300) {
                     resolve(res.responseText);
                 } else if (swallowError) {
                     resolve('');
@@ -256,35 +282,35 @@ function request(options) {
                     reject(new Error(`HTTP ${res.status}`));
                 }
             },
-            onerror: () => (swallowError ? resolve('') : reject(new Error('网络请求失败'))),
-            ontimeout: () => (swallowError ? resolve('') : reject(new Error('请求超时')))
+            onerror () = (swallowError  resolve('')  reject(new Error('网络请求失败'))),
+            ontimeout () = (swallowError  resolve('')  reject(new Error('请求超时')))
         });
     });
 }
 
-/**
- * APP 端授权管理：授权码捕获 → 令牌兑换/刷新 → 续期 → 401 自动重试
- */
+
+  APP 端授权管理：授权码捕获 → 令牌兑换刷新 → 续期 → 401 自动重试
+ 
 const AppAuth = {
-    // 是否为授权落地页（login.live.com 授权跳转后的回调页）
+     是否为授权落地页（login.live.com 授权跳转后的回调页）
     isAuthLandingPage() {
-        return location.hostname === 'login.live.com' && location.pathname === '/oauth20_desktop.srf';
+        return location.hostname === 'login.live.com' && location.pathname === 'oauth20_desktop.srf';
     },
 
-    // 从 URL 中提取授权码
+     从 URL 中提取授权码
     extractAuthCode(url) {
         try {
-            return new URL(url).searchParams.get('code') || '';
+            return new URL(url).searchParams.get('code')  '';
         } catch {
             return '';
         }
     },
 
-    /**
-     * 授权落地页处理：仅捕获授权码并落盘，随后通知并关页
-     * 令牌兑换不在此处执行（页面即将关闭，请求易被中断），
-     * 由设置页轮询或任务执行时的 ensureToken 在长生命周期上下文中完成
-     */
+    
+      授权落地页处理：仅捕获授权码并落盘，随后通知并关页
+      令牌兑换不在此处执行（页面即将关闭，请求易被中断），
+      由设置页轮询或任务执行时的 ensureToken 在长生命周期上下文中完成
+     
     async handleAuthLanding() {
         const code = this.extractAuthCode(location.href);
         if (!code) return;
@@ -293,39 +319,39 @@ const AppAuth = {
         GM_setValue('appAuthLastError', '');
         GM_log('APP授权：授权码已捕获，待主页面兑换令牌');
         try {
-            GM_notification({ title: 'APP任务授权', text: '授权码已捕获，即将关闭此页面', timeout: 3000 });
+            GM_notification({ title 'APP任务授权', text '授权码已捕获，即将关闭此页面', timeout 3000 });
         } catch {}
-        setTimeout(() => {
+        setTimeout(() = {
             try { window.close(); } catch {}
         }, 500);
     },
 
-    // 打开授权页（由设置页按钮/菜单触发，复用浏览器真实登录态）
+     打开授权页（由设置页按钮菜单触发，复用浏览器真实登录态）
     openAuthorizePage() {
-        GM_openInTab(REWARDS_APP_SPEC.endpoints.authorizePage, { active: true });
+        GM_openInTab(REWARDS_APP_SPEC.endpoints.authorizePage, { active true });
     },
 
-    /**
-     * 令牌兑换/刷新（GET 查询串形式，MSA 端点契约要求必传 client_id）
-     * @param grantType 'authorization_code'（授权码兑换）或 'REFRESH_TOKEN'（刷新令牌续期）
-     * @param credential 授权码或刷新令牌
-     */
+    
+      令牌兑换刷新（GET 查询串形式，MSA 端点契约要求必传 client_id）
+      @param grantType 'authorization_code'（授权码兑换）或 'REFRESH_TOKEN'（刷新令牌续期）
+      @param credential 授权码或刷新令牌
+     
     async exchangeToken(grantType, credential) {
         const params = new URLSearchParams();
         params.set('client_id', '0000000040170455');
         if (grantType === 'authorization_code') {
             params.set('grant_type', 'authorization_code');
             params.set('code', credential);
-            params.set('redirect_uri', 'https://login.live.com/oauth20_desktop.srf');
+            params.set('redirect_uri', 'httpslogin.live.comoauth20_desktop.srf');
         } else {
             params.set('grant_type', 'REFRESH_TOKEN');
             params.set('refresh_token', credential);
-            params.set('scope', 'service::prod.rewardsplatform.microsoft.com::MBI_SSL');
+            params.set('scope', 'serviceprod.rewardsplatform.microsoft.comMBI_SSL');
         }
 
         try {
             const res = await request({
-                url: `${REWARDS_APP_SPEC.endpoints.tokenIssue}?${params.toString()}`
+                url `${REWARDS_APP_SPEC.endpoints.tokenIssue}${params.toString()}`
             });
             const data = utils.safeJsonParse(res, null);
             if (!data) {
@@ -334,10 +360,10 @@ const AppAuth = {
             }
 
             if (data.error) {
-                const reason = `${data.error}${data.error_description ? ' - ' + data.error_description : ''}`;
+                const reason = `${data.error}${data.error_description  ' - ' + data.error_description  ''}`;
                 GM_setValue('appAuthLastError', reason);
-                GM_log(`APP任务令牌错误: ${reason}`);
-                if (data.error === 'invalid_grant' || data.error === 'invalid_request') {
+                GM_log(`APP任务令牌错误 ${reason}`);
+                if (data.error === 'invalid_grant'  data.error === 'invalid_request') {
                     this.clearCredentials();
                 }
                 return false;
@@ -349,22 +375,22 @@ const AppAuth = {
                 GM_setValue('appAuthLastError', '');
                 state.appToken = data.access_token;
                 state.appTasks.authRequired = false;
-                GM_log(`APP授权：令牌已获取（${grantType === 'authorization_code' ? '授权码兑换' : '刷新续期'}）`);
+                GM_log(`APP授权：令牌已获取（${grantType === 'authorization_code'  '授权码兑换'  '刷新续期'}）`);
                 return true;
             }
             GM_setValue('appAuthLastError', '令牌响应缺少字段');
             return false;
         } catch (e) {
-            GM_setValue('appAuthLastError', `请求失败: ${e.message}`);
-            GM_log(`APP任务令牌请求失败: ${e.message}`);
-            if (e.message.includes('400') || e.message.includes('401')) {
+            GM_setValue('appAuthLastError', `请求失败 ${e.message}`);
+            GM_log(`APP任务令牌请求失败 ${e.message}`);
+            if (e.message.includes('400')  e.message.includes('401')) {
                 this.clearCredentials();
             }
             return false;
         }
     },
 
-    // 清空本地令牌凭据
+     清空本地令牌凭据
     clearCredentials() {
         GM_setValue('appRefreshToken', '');
         GM_setValue('appAccessToken', '');
@@ -373,46 +399,46 @@ const AppAuth = {
         state.appToken = '';
     },
 
-    // 当前刷新令牌的持有天数（无记录时视为无穷大）
+     当前刷新令牌的持有天数（无记录时视为无穷大）
     tokenAgeDays() {
         const issuedAt = GM_getValue('appTokenIssuedAt', 0);
-        return issuedAt > 0 ? (Date.now() - issuedAt) / (24 * 60 * 60 * 1000) : Infinity;
+        return issuedAt  0  (Date.now() - issuedAt)  (24  60  60  1000)  Infinity;
     },
 
-    // 令牌签发时长文案（授权兑换与自动续期都会刷新签发时间，按自然日分级描述）
-    // 无签发记录时返回空串，由调用方省略括号，避免出现 1970 基准的异常天数
+     令牌签发时长文案（授权兑换与自动续期都会刷新签发时间，按自然日分级描述）
+     无签发记录时返回空串，由调用方省略括号，避免出现 1970 基准的异常天数
     issueAgeText() {
         const issuedAt = GM_getValue('appTokenIssuedAt', 0);
-        if (!(issuedAt > 0)) return '';
+        if (!(issuedAt  0)) return '';
         const days = utils.getCalendarDayDiff(issuedAt, Date.now());
-        if (days <= 0) return '今天';
+        if (days = 0) return '今天';
         if (days === 1) return '昨天';
         return `${days}天前`;
     },
 
-    /**
-     * 确保内存中存在有效令牌：
-     * 补兑换暂存授权码 → 校验有效期（超7天续期）→ 刷新令牌续期
-     * 全部失败时标记待授权并返回 false
-     */
+    
+      确保内存中存在有效令牌：
+      补兑换暂存授权码 → 校验有效期（超7天续期）→ 刷新令牌续期
+      全部失败时标记待授权并返回 false
+     
     async ensureToken() {
-        // 补兑换：落地页兑换失败时暂存的授权码
+         补兑换：落地页兑换失败时暂存的授权码
         const pendingCode = GM_getValue('appPendingAuthCode', '');
         if (!state.appToken && pendingCode) {
             GM_setValue('appPendingAuthCode', '');
             if (await this.exchangeToken('authorization_code', pendingCode)) return true;
         }
 
-        // 优先恢复本地缓存的访问令牌（页面跳转后内存令牌丢失，避免每次搜索页都刷新令牌）
+         优先恢复本地缓存的访问令牌（页面跳转后内存令牌丢失，避免每次搜索页都刷新令牌）
         if (!state.appToken) {
             const cachedToken = GM_getValue('appAccessToken', '');
-            if (cachedToken && this.tokenAgeDays() <= REWARDS_APP_SPEC.tokenMaxAgeDays) {
+            if (cachedToken && this.tokenAgeDays() = REWARDS_APP_SPEC.tokenMaxAgeDays) {
                 state.appToken = cachedToken;
             }
         }
 
         if (state.appToken) {
-            if (this.tokenAgeDays() > REWARDS_APP_SPEC.tokenMaxAgeDays) {
+            if (this.tokenAgeDays()  REWARDS_APP_SPEC.tokenMaxAgeDays) {
                 GM_log('APP任务令牌已超7天，提前续期');
                 state.appToken = '';
             } else {
@@ -429,10 +455,10 @@ const AppAuth = {
         return false;
     },
 
-    /**
-     * 请求包装：401 时清空令牌、重新刷新并原请求重试一次
-     * 刷新失败返回 null（标记待授权），其他错误向上抛出
-     */
+    
+      请求包装：401 时清空令牌、重新刷新并原请求重试一次
+      刷新失败返回 null（标记待授权），其他错误向上抛出
+     
     async withAuth(requestFn) {
         if (!state.appToken) return null;
         try {
@@ -455,81 +481,81 @@ const AppAuth = {
     }
 };
 
-/**
- * APP 端业务接口：签到上报、阅读上报、阅读进度查询
- */
+
+  APP 端业务接口：签到上报、阅读上报、阅读进度查询
+ 
 const AppApi = {
-    // 组装移动端公共请求头（设备标识取当前选中的预设）
+     组装移动端公共请求头（设备标识取当前选中的预设）
     buildHeaders(extra) {
         const client = getAppClient();
         return Object.assign({
-            'content-type': 'application/json; charset=UTF-8',
-            'user-agent': client.userAgent,
-            'x-rewards-appid': client.appId,
-            'x-rewards-ismobile': 'true',
-            'x-rewards-country': REWARDS_APP_SPEC.region,
-            'x-rewards-language': 'zh'
-        }, extra || {});
+            'content-type' 'applicationjson; charset=UTF-8',
+            'user-agent' client.userAgent,
+            'x-rewards-appid' client.appId,
+            'x-rewards-ismobile' 'true',
+            'x-rewards-country' REWARDS_APP_SPEC.region,
+            'x-rewards-language' 'zh'
+        }, extra  {});
     },
 
-    // 生成64位hex随机活动ID（模拟移动端活动上报格式）
+     生成64位hex随机活动ID（模拟移动端活动上报格式）
     generateActivityId() {
         if (window.crypto && crypto.getRandomValues) {
             const bytes = new Uint8Array(32);
             crypto.getRandomValues(bytes);
-            return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+            return Array.from(bytes, b = b.toString(16).padStart(2, '0')).join('');
         }
         let id = '';
-        for (let i = 0; i < 64; i++) id += Math.floor(Math.random() * 16).toString(16);
+        for (let i = 0; i  64; i++) id += Math.floor(Math.random()  16).toString(16);
         return id;
     },
 
-    // 解析活动上报响应（积分/重复标记/余额）
+     解析活动上报响应（积分重复标记余额）
     parseActivityResponse(res) {
         const data = utils.safeJsonParse(res, null);
-        if (!data || !data.response) return null;
+        if (!data  !data.response) return null;
         return {
-            points: Number(data.response.activity?.p || 0),
-            duplicate: Boolean(data.response.isDuplicate),
-            balance: Number(data.response.balance || 0)
+            points Number(data.response.activity.p  0),
+            duplicate Boolean(data.response.isDuplicate),
+            balance Number(data.response.balance  0)
         };
     },
 
-    // 解析阅读进度（从账户画像的 promotions 中匹配阅读活动）
+     解析阅读进度（从账户画像的 promotions 中匹配阅读活动）
     parseReadProgress(res) {
         const data = utils.safeJsonParse(res, null);
-        const promos = data?.response?.promotions || [];
-        const task = promos.find(p => p.attributes?.offerid === REWARDS_APP_SPEC.offers.readArticle);
+        const promos = data.response.promotions  [];
+        const task = promos.find(p = p.attributes.offerid === REWARDS_APP_SPEC.offers.readArticle);
         if (task && task.attributes) {
             return {
-                current: parseInt(task.attributes.progress) || 0,
-                total: parseInt(task.attributes.max) || 30
+                current parseInt(task.attributes.progress)  0,
+                total parseInt(task.attributes.max)  30
             };
         }
         return null;
     },
 
-    /**
-     * 每日签到上报（type=103，无 offerid）
-     * 返回 {points, duplicate}；isDuplicate/空 activity 视为当日已签（幂等成功）
-     */
+    
+      每日签到上报（type=103，无 offerid）
+      返回 {points, duplicate}；isDuplicate空 activity 视为当日已签（幂等成功）
+     
     async reportCheckIn() {
         const region = REWARDS_APP_SPEC.region;
         const channel = getAppClient().channel;
         try {
-            const res = await AppAuth.withAuth(token => request({
-                method: 'POST',
-                url: REWARDS_APP_SPEC.endpoints.activityReport,
-                headers: this.buildHeaders({
-                    authorization: `Bearer ${token}`,
-                    'x-rewards-partnerid': 'startapp',
-                    'x-rewards-flights': 'rwgobig'
+            const res = await AppAuth.withAuth(token = request({
+                method 'POST',
+                url REWARDS_APP_SPEC.endpoints.activityReport,
+                headers this.buildHeaders({
+                    authorization `Bearer ${token}`,
+                    'x-rewards-partnerid' 'startapp',
+                    'x-rewards-flights' 'rwgobig'
                 }),
-                data: JSON.stringify({
-                    amount: 1,
-                    id: this.generateActivityId(),
-                    type: REWARDS_APP_SPEC.activities.checkIn,
-                    country: region,
+                data JSON.stringify({
+                    amount 1,
+                    id this.generateActivityId(),
+                    type REWARDS_APP_SPEC.activities.checkIn,
+                    country region,
                     channel
                 })
             }));
@@ -537,107 +563,107 @@ const AppApi = {
 
             const result = this.parseActivityResponse(res);
             if (result) {
-                // 有积分为成功；无积分（含 isDuplicate/空 activity）按当日已签的幂等成功处理
-                return { points: result.points, duplicate: result.duplicate || result.points === 0 };
+                 有积分为成功；无积分（含 isDuplicate空 activity）按当日已签的幂等成功处理
+                return { points result.points, duplicate result.duplicate  result.points === 0 };
             }
             return null;
         } catch (e) {
-            GM_log(`APP签到请求失败: ${e.message}`);
+            GM_log(`APP签到请求失败 ${e.message}`);
             return null;
         }
     },
 
-    /**
-     * 单篇资讯阅读上报（type=101，attributes 携带阅读活动标识）
-     * 返回 {points, duplicate}；失败返回 null
-     */
+    
+      单篇资讯阅读上报（type=101，attributes 携带阅读活动标识）
+      返回 {points, duplicate}；失败返回 null
+     
     async reportArticleRead() {
         const region = REWARDS_APP_SPEC.region;
         const channel = getAppClient().channel;
         try {
-            const res = await AppAuth.withAuth(token => request({
-                method: 'POST',
-                url: REWARDS_APP_SPEC.endpoints.activityReport,
-                headers: this.buildHeaders({ authorization: `Bearer ${token}` }),
-                data: JSON.stringify({
-                    amount: 1,
-                    id: this.generateActivityId(),
-                    type: REWARDS_APP_SPEC.activities.readArticle,
-                    country: region,
+            const res = await AppAuth.withAuth(token = request({
+                method 'POST',
+                url REWARDS_APP_SPEC.endpoints.activityReport,
+                headers this.buildHeaders({ authorization `Bearer ${token}` }),
+                data JSON.stringify({
+                    amount 1,
+                    id this.generateActivityId(),
+                    type REWARDS_APP_SPEC.activities.readArticle,
+                    country region,
                     channel,
-                    attributes: { offerid: REWARDS_APP_SPEC.offers.readArticle }
+                    attributes { offerid REWARDS_APP_SPEC.offers.readArticle }
                 })
             }));
             if (res === null) return null;
 
             const result = this.parseActivityResponse(res);
-            if (result && (result.points > 0 || result.duplicate)) {
+            if (result && (result.points  0  result.duplicate)) {
                 return result;
             }
             return null;
         } catch (e) {
-            GM_log(`APP阅读请求失败: ${e.message}`);
+            GM_log(`APP阅读请求失败 ${e.message}`);
             return null;
         }
     },
 
-    // 查询阅读进度（当前/上限）
+     查询阅读进度（当前上限）
     async queryReadProgress() {
         try {
-            const res = await AppAuth.withAuth(token => request({
-                url: getAccountProfileUrl(),
-                headers: this.buildHeaders({ authorization: `Bearer ${token}` })
+            const res = await AppAuth.withAuth(token = request({
+                url getAccountProfileUrl(),
+                headers this.buildHeaders({ authorization `Bearer ${token}` })
             }));
             if (res === null) return null;
             return this.parseReadProgress(res);
         } catch (e) {
-            GM_log(`APP阅读进度查询失败: ${e.message}`);
+            GM_log(`APP阅读进度查询失败 ${e.message}`);
             return null;
         }
     }
 };
 
-/**
- * APP 端任务编排：签到流程、阅读流程、日期戳幂等、重试计数
- */
+
+  APP 端任务编排：签到流程、阅读流程、日期戳幂等、重试计数
+ 
 const AppTaskRunner = {
-    // 指定日期戳键是否记录为今天（APP 任务完成态的统一定义）
+     指定日期戳键是否记录为今天（APP 任务完成态的统一定义）
     isDoneToday(storageKey) {
         return GM_getValue(storageKey, 0) === utils.getTodayNum();
     },
 
-    /**
-     * 读取当日签到结果（{done, points}）
-     * 日期与积分合并为单键 {date, points}，同写同读，杜绝「日期是今天、积分是昨天」的错配；
-     * 旧版分离键（appCheckInDate/appCheckInPoints）仅用于升级后的首次迁移读取
-     */
+    
+      读取当日签到结果（{done, points}）
+      日期与积分合并为单键 {date, points}，同写同读，杜绝「日期是今天、积分是昨天」的错配；
+      旧版分离键（appCheckInDateappCheckInPoints）仅用于升级后的首次迁移读取
+     
     getCheckInResult() {
         const today = utils.getTodayNum();
         const cached = GM_getValue('appCheckInResult', null);
         if (cached && typeof cached === 'object' && Number(cached.date) === today) {
-            return { done: true, points: Number(cached.points) || 0 };
+            return { done true, points Number(cached.points)  0 };
         }
         if (GM_getValue('appCheckInDate', 0) === today) {
-            return { done: true, points: Number(GM_getValue('appCheckInPoints', 0)) || 0 };
+            return { done true, points Number(GM_getValue('appCheckInPoints', 0))  0 };
         }
-        return { done: false, points: 0 };
+        return { done false, points 0 };
     },
 
-    /**
-     * 原子写入当日签到结果，并清理旧版分离键
-     * @param {number} points 当日签到已获得的积分
-     */
+    
+      原子写入当日签到结果，并清理旧版分离键
+      @param {number} points 当日签到已获得的积分
+     
     setCheckInResult(points) {
-        GM_setValue('appCheckInResult', { date: utils.getTodayNum(), points: Number(points) || 0 });
+        GM_setValue('appCheckInResult', { date utils.getTodayNum(), points Number(points)  0 });
         GM_deleteValue('appCheckInDate');
         GM_deleteValue('appCheckInPoints');
     },
 
-    // 同步当日签到完成状态到内存（供面板渲染）
+     同步当日签到完成状态到内存（供面板渲染）
     syncCheckInState() {
         const result = this.getCheckInResult();
         state.appTasks.checkInDone = result.done;
-        // 未完成/跨日时一并复位积分，避免面板读到残留旧值
+         未完成跨日时一并复位积分，避免面板读到残留旧值
         state.appTasks.checkInPoints = result.points;
     },
 
@@ -645,7 +671,7 @@ const AppTaskRunner = {
         return GM_getValue('appTaskRetryCounters', {});
     },
 
-    // 重试计数跨日清零（保证每日重试额度与完成兜底可靠生效）
+     重试计数跨日清零（保证每日重试额度与完成兜底可靠生效）
     resetRetryCountersIfNewDay() {
         const today = utils.getTodayNum();
         if (GM_getValue('appTaskRetryDate', 0) !== today) {
@@ -656,25 +682,25 @@ const AppTaskRunner = {
 
     bumpRetry(taskName) {
         const counters = this.getRetryCounters();
-        counters[taskName] = (counters[taskName] || 0) + 1;
+        counters[taskName] = (counters[taskName]  0) + 1;
         GM_setValue('appTaskRetryCounters', counters);
     },
 
-    // 任务重试次数是否未用尽（每任务每日最多2次）
+     任务重试次数是否未用尽（每任务每日最多2次）
     retryLeft(taskName) {
-        return (this.getRetryCounters()[taskName] || 0) < 2;
+        return (this.getRetryCounters()[taskName]  0)  2;
     },
 
-    // APP 任务是否已全部完成（开关关闭的任务视为完成）
+     APP 任务是否已全部完成（开关关闭的任务视为完成）
     isAllDone() {
-        const checkInDone = !CONFIG.appCheckInEnabled || this.getCheckInResult().done;
-        const readDone = !CONFIG.appReadEnabled || this.isDoneToday('appReadDate');
+        const checkInDone = !CONFIG.appCheckInEnabled  this.getCheckInResult().done;
+        const readDone = !CONFIG.appReadEnabled  this.isDoneToday('appReadDate');
         return checkInDone && readDone;
     },
 
-    // 当日 APP 阅读已上报篇数（跨页面跳转持久化，受每日上限约束）
+     当日 APP 阅读已上报篇数（跨页面跳转持久化，受每日上限约束）
     getReadReportedToday() {
-        return this.isDoneToday('appReadReportedDate') ? GM_getValue('appReadReportedCount', 0) : 0;
+        return this.isDoneToday('appReadReportedDate')  GM_getValue('appReadReportedCount', 0)  0;
     },
 
     bumpReadReported() {
@@ -685,10 +711,10 @@ const AppTaskRunner = {
         GM_setValue('appReadReportedCount', GM_getValue('appReadReportedCount', 0) + 1);
     },
 
-    /**
-     * APP 签到流程入口（搜索开始前执行）：授权校验 → 签到 → 更新面板
-     * 资讯阅读不在此处执行，改为每次搜索前随机穿插上报（见 runRandomReads）
-     */
+    
+      APP 签到流程入口（搜索开始前执行）：授权校验 → 签到 → 更新面板
+      资讯阅读不在此处执行，改为每次搜索前随机穿插上报（见 runRandomReads）
+     
     async runCheckInFlow() {
         if (!CONFIG.appCheckInEnabled) return;
         this.syncCheckInState();
@@ -705,15 +731,15 @@ const AppTaskRunner = {
         try {
             await this.runCheckIn();
         } catch (e) {
-            GM_log(`APP签到异常: ${e.message}`);
+            GM_log(`APP签到异常 ${e.message}`);
         }
         updateStatusPanel();
     },
 
-    /**
-     * APP 端任务总入口（搜索完成后的兜底补跑）：授权校验 → 签到 → 资讯阅读
-     * 各任务独立 try/catch 隔离，互不影响也不阻断搜索主任务
-     */
+    
+      APP 端任务总入口（搜索完成后的兜底补跑）：授权校验 → 签到 → 资讯阅读
+      各任务独立 trycatch 隔离，互不影响也不阻断搜索主任务
+     
     async runAll() {
         if (!CONFIG.appCheckInEnabled && !CONFIG.appReadEnabled) return;
         this.syncCheckInState();
@@ -730,17 +756,17 @@ const AppTaskRunner = {
         try {
             await this.runCheckIn();
         } catch (e) {
-            GM_log(`APP签到异常: ${e.message}`);
+            GM_log(`APP签到异常 ${e.message}`);
         }
         try {
             await this.runArticleRead();
         } catch (e) {
-            GM_log(`APP阅读异常: ${e.message}`);
+            GM_log(`APP阅读异常 ${e.message}`);
         }
         updateStatusPanel();
     },
 
-    // 每日签到流程：幂等判断 → 上报 → 结果落盘
+     每日签到流程：幂等判断 → 上报 → 结果落盘
     async runCheckIn() {
         if (!CONFIG.appCheckInEnabled) return;
 
@@ -755,35 +781,35 @@ const AppTaskRunner = {
 
         const result = await AppApi.reportCheckIn();
         if (result) {
-            // 请求期间可能已被其他标签页签到：以落盘的最新结果为准
+             请求期间可能已被其他标签页签到：以落盘的最新结果为准
             const latest = this.getCheckInResult();
-            // 服务端判定重复/无新增（points=0）时保留当日已有积分，禁止把已记录积分覆盖为 0
-            const points = result.points > 0 ? result.points : latest.points;
+             服务端判定重复无新增（points=0）时保留当日已有积分，禁止把已记录积分覆盖为 0
+            const points = result.points  0  result.points  latest.points;
             this.setCheckInResult(points);
             state.appTasks.checkInDone = true;
             state.appTasks.checkInPoints = points;
-            GM_log(result.points > 0
-                ? `APP签到成功，+${result.points}积分`
-                : `APP签到确认完成（今日已签${points > 0 ? `，保留已有 +${points}积分` : '，无新增积分'}）`);
+            GM_log(result.points  0
+                 `APP签到成功，+${result.points}积分`
+                 `APP签到确认完成（今日已签${points  0  `，保留已有 +${points}积分`  '，无新增积分'}）`);
         } else {
             this.bumpRetry('checkIn');
             GM_log('APP签到失败，稍后重试');
         }
     },
 
-    /**
-     * 搜索前随机阅读：随机上报 0-3 篇（受剩余缺口与每日上报上限约束）
-     * 失败不消耗重试预算（预算仅由兜底流程消耗，避免每日约20次调用放大耗尽）
-     * 进度优先从当日 GM 缓存恢复，未缓存时实时查询；当日已完成直接跳过
-     */
+    
+      搜索前随机阅读：随机上报 0-3 篇（受剩余缺口与每日上报上限约束）
+      失败不消耗重试预算（预算仅由兜底流程消耗，避免每日约20次调用放大耗尽）
+      进度优先从当日 GM 缓存恢复，未缓存时实时查询；当日已完成直接跳过
+     
     async runRandomReads() {
         if (!CONFIG.appReadEnabled) return;
 
-        // 当日已完成：直接跳过（进度二次校验由搜索完成后的兜底流程负责）
+         当日已完成：直接跳过（进度二次校验由搜索完成后的兜底流程负责）
         if (this.isDoneToday('appReadDate')) return;
-        // 重试预算已耗尽（由兜底流程消耗），当日不再尝试
+         重试预算已耗尽（由兜底流程消耗），当日不再尝试
         if (!this.retryLeft('read')) return;
-        // 本地无令牌凭据（从未授权/凭据已清除）
+         本地无令牌凭据（从未授权凭据已清除）
         if (!state.appToken && !GM_getValue('appRefreshToken', '')) return;
 
         createStatusPanel();
@@ -793,26 +819,26 @@ const AppTaskRunner = {
         try {
             if (!(await AppAuth.ensureToken())) return;
 
-            // 当日进度未同步：优先恢复缓存，未缓存再实时查询真实进度
+             当日进度未同步：优先恢复缓存，未缓存再实时查询真实进度
             if (!state.appTasks.readProgressSynced && !this.restoreCachedReadProgress()) {
                 const progress = await this.syncReadProgress();
                 if (!progress) {
                     GM_log('APP阅读进度获取失败，跳过本次随机阅读');
                     return;
                 }
-                if (progress.current >= progress.total) return;
+                if (progress.current = progress.total) return;
             }
 
             const limitLeft = CONFIG.appReadDailyLimit - this.getReadReportedToday();
             const remaining = state.appTasks.readTotal - state.appTasks.readCurrent;
             const maxBatch = Math.min(remaining, limitLeft);
-            if (maxBatch <= 0) return;
+            if (maxBatch = 0) return;
 
-            // 随机执行 0-3 次 APP 阅读上报
-            const batch = Math.min(maxBatch, Math.floor(Math.random() * 4));
-            if (batch <= 0) return;
+             随机执行 0-3 次 APP 阅读上报
+            const batch = Math.min(maxBatch, Math.floor(Math.random()  4));
+            if (batch = 0) return;
 
-            GM_log(`APP阅读进度 ${state.appTasks.readCurrent}/${state.appTasks.readTotal}，搜索前随机上报 ${batch} 篇`);
+            GM_log(`APP阅读进度 ${state.appTasks.readCurrent}${state.appTasks.readTotal}，搜索前随机上报 ${batch} 篇`);
             await this.reportReadBatch(batch, false);
         } finally {
             state.appTasks.readRunning = false;
@@ -820,23 +846,23 @@ const AppTaskRunner = {
         }
     },
 
-    /**
-     * 从当日 GM 缓存恢复阅读进度到内存（跨页面跳转免重复查询）
-     * 返回是否命中当日缓存
-     */
+    
+      从当日 GM 缓存恢复阅读进度到内存（跨页面跳转免重复查询）
+      返回是否命中当日缓存
+     
     restoreCachedReadProgress() {
         const cache = GM_getValue('appReadProgressCache', null);
-        if (!cache || cache.date !== utils.getTodayNum()) return false;
+        if (!cache  cache.date !== utils.getTodayNum()) return false;
         state.appTasks.readCurrent = cache.current;
         state.appTasks.readTotal = cache.total;
         state.appTasks.readProgressSynced = true;
         return true;
     },
 
-    /**
-     * 同步当日真实阅读进度到内存（随机阅读与面板实时渲染共用）
-     * 返回进度对象；查询失败返回 null
-     */
+    
+      同步当日真实阅读进度到内存（随机阅读与面板实时渲染共用）
+      返回进度对象；查询失败返回 null
+     
     async syncReadProgress() {
         const today = utils.getTodayNum();
         const progress = await AppApi.queryReadProgress();
@@ -845,53 +871,53 @@ const AppTaskRunner = {
         state.appTasks.readCurrent = progress.current;
         state.appTasks.readTotal = progress.total;
         state.appTasks.readProgressSynced = true;
-        // 持久化当日进度（跨页面跳转恢复，避免每次搜索页都重复查询）
-        GM_setValue('appReadProgressCache', { date: today, current: progress.current, total: progress.total });
+         持久化当日进度（跨页面跳转恢复，避免每次搜索页都重复查询）
+        GM_setValue('appReadProgressCache', { date today, current progress.current, total progress.total });
         updateStatusPanel();
 
-        if (progress.current >= progress.total) {
+        if (progress.current = progress.total) {
             GM_setValue('appReadDate', today);
             state.appTasks.readDone = true;
-            GM_log(`APP阅读任务已完成（已验证 ${progress.current}/${progress.total}）`);
+            GM_log(`APP阅读任务已完成（已验证 ${progress.current}${progress.total}）`);
         } else if (this.isDoneToday('appReadDate')) {
-            // 误标自愈：日期戳已标记完成但真实进度未达标，重置后继续
-            GM_log(`APP阅读标记有误（${progress.current}/${progress.total}），重置后继续`);
+             误标自愈：日期戳已标记完成但真实进度未达标，重置后继续
+            GM_log(`APP阅读标记有误（${progress.current}${progress.total}），重置后继续`);
             GM_setValue('appReadDate', 0);
             state.appTasks.readDone = false;
         }
         return progress;
     },
 
-    /**
-     * 批量阅读上报：逐篇上报 + 篇间随机间隔，全部完成后落盘日期戳
-     * @param {number} count 本次上报篇数
-     * @param {boolean} countRetry 失败时是否消耗重试预算（随机阅读不消耗，兜底补跑消耗）
-     */
+    
+      批量阅读上报：逐篇上报 + 篇间随机间隔，全部完成后落盘日期戳
+      @param {number} count 本次上报篇数
+      @param {boolean} countRetry 失败时是否消耗重试预算（随机阅读不消耗，兜底补跑消耗）
+     
     async reportReadBatch(count, countRetry = false) {
         const today = utils.getTodayNum();
 
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i  count; i++) {
             const result = await AppApi.reportArticleRead();
             if (!result) {
                 GM_log(`APP阅读第 ${i + 1} 篇上报失败，中止本次循环`);
                 if (countRetry) this.bumpRetry('read');
                 return;
             }
-            // 重复上报（服务端未新增计数）不累加本地计数，防止进度漂移
+             重复上报（服务端未新增计数）不累加本地计数，防止进度漂移
             if (!result.duplicate) {
                 state.appTasks.readCurrent++;
             }
             this.bumpReadReported();
-            GM_setValue('appReadProgressCache', { date: today, current: state.appTasks.readCurrent, total: state.appTasks.readTotal });
+            GM_setValue('appReadProgressCache', { date today, current state.appTasks.readCurrent, total state.appTasks.readTotal });
             updateStatusPanel();
-            if (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal) break;
-            // 篇间随机间隔，模拟真实阅读行为
-            if (i < count - 1) {
-                await sleep(3000 + Math.floor(Math.random() * 5000));
+            if (state.appTasks.readTotal  0 && state.appTasks.readCurrent = state.appTasks.readTotal) break;
+             篇间随机间隔，模拟真实阅读行为
+            if (i  count - 1) {
+                await sleep(3000 + Math.floor(Math.random()  5000));
             }
         }
 
-        if (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal) {
+        if (state.appTasks.readTotal  0 && state.appTasks.readCurrent = state.appTasks.readTotal) {
             GM_setValue('appReadDate', today);
             state.appTasks.readDone = true;
             GM_log('APP阅读任务完成');
@@ -899,9 +925,9 @@ const AppTaskRunner = {
         }
     },
 
-    /**
-     * 资讯阅读兜底流程（搜索完成后补跑）：实时查询进度 → 缺口循环上报
-     */
+    
+      资讯阅读兜底流程（搜索完成后补跑）：实时查询进度 → 缺口循环上报
+     
     async runArticleRead() {
         if (!CONFIG.appReadEnabled) return;
 
@@ -911,7 +937,7 @@ const AppTaskRunner = {
             GM_log('APP阅读进度获取失败，稍后重试');
             return;
         }
-        if (progress.current >= progress.total) return;
+        if (progress.current = progress.total) return;
         if (!this.retryLeft('read')) {
             GM_log('APP阅读重试次数已用尽，今日不再执行');
             return;
@@ -919,49 +945,49 @@ const AppTaskRunner = {
 
         const limitLeft = CONFIG.appReadDailyLimit - this.getReadReportedToday();
         const remaining = Math.min(progress.total - progress.current, limitLeft);
-        if (remaining <= 0) {
+        if (remaining = 0) {
             GM_log(`APP阅读已达每日上报上限（${CONFIG.appReadDailyLimit} 篇），今日不再上报`);
             return;
         }
 
-        GM_log(`APP阅读进度 ${progress.current}/${progress.total}，本次上报 ${remaining} 篇（每日上限 ${CONFIG.appReadDailyLimit} 篇）`);
+        GM_log(`APP阅读进度 ${progress.current}${progress.total}，本次上报 ${remaining} 篇（每日上限 ${CONFIG.appReadDailyLimit} 篇）`);
         await this.reportReadBatch(remaining, true);
     }
 };
 
-// 工具函数
+ 工具函数
 const utils = {
-    // 清理所有定时器
+     清理所有定时器
     clearAllTimers() {
-        state.timers.forEach(timer => {
+        state.timers.forEach(timer = {
             clearTimeout(timer);
             clearInterval(timer);
         });
         state.timers.clear();
     },
 
-    // 添加定时器到管理集合
+     添加定时器到管理集合
     addTimer(timer) {
         state.timers.add(timer);
         return timer;
     },
 
-    // 随机对搜索词加词，例如：人工智能发展  -->  人工1智能发z展
+     随机对搜索词加词，例如：人工智能发展  --  人工1智能发z展
     addRandomCharsToSearchWord(word) {
-        if (!CONFIG.randomAddSearchWords || !word || Math.random() > CONFIG.randomAddSearchWordsFactor) return word;
+        if (!CONFIG.randomAddSearchWords  !word  Math.random()  CONFIG.randomAddSearchWordsFactor) return word;
 
-        // 控制添加字符的数量，避免过度添加导致词无意义
-        const maxAdditions = Math.min(3, Math.floor(word.length / 3)); // 最多添加原词长度1/3的随机字符
+         控制添加字符的数量，避免过度添加导致词无意义
+        const maxAdditions = Math.min(3, Math.floor(word.length  3));  最多添加原词长度13的随机字符
         let result = word;
 
-        for (let i = 0; i < Math.floor(Math.random() * (maxAdditions + 1)); i++) {
-            // 随机选择插入位置（避开开头和结尾）
-            const insertPos = Math.floor(Math.random() * (result.length - 1)) + 1;
-            // 随机选择要插入的字符
+        for (let i = 0; i  Math.floor(Math.random()  (maxAdditions + 1)); i++) {
+             随机选择插入位置（避开开头和结尾）
+            const insertPos = Math.floor(Math.random()  (result.length - 1)) + 1;
+             随机选择要插入的字符
             const randomChar = String.fromCharCode(
-                Math.random() > 0.5 ?
-                Math.floor(Math.random() * 10) + 48 : // 数字 0-9
-                Math.floor(Math.random() * 26) + 97   // 小写字母 a-z
+                Math.random()  0.5 
+                Math.floor(Math.random()  10) + 48   数字 0-9
+                Math.floor(Math.random()  26) + 97    小写字母 a-z
             );
 
             result = result.slice(0, insertPos) + randomChar + result.slice(insertPos);
@@ -970,69 +996,69 @@ const utils = {
         return result;
     },
 
-    // 随机对搜索词进行截取，例如：人工1智能发z展  --> 人工1智
+     随机对搜索词进行截取，例如：人工1智能发z展  -- 人工1智
     cutSearchWordRandomly(word) {
-        if (!CONFIG.randomCutSearchWords || !word || Math.random() > CONFIG.randomCutSearchWordsFactor) return word;
+        if (!CONFIG.randomCutSearchWords  !word  Math.random()  CONFIG.randomCutSearchWordsFactor) return word;
 
-        // 控制截取长度，保留至少一半的字符
-        const minLength = Math.max(2, Math.ceil(word.length / 2)); // 至少保留2个字符或一半字符
-        const maxLength = word.length; // 最大不超过原词长度
+         控制截取长度，保留至少一半的字符
+        const minLength = Math.max(2, Math.ceil(word.length  2));  至少保留2个字符或一半字符
+        const maxLength = word.length;  最大不超过原词长度
 
-        if (minLength >= maxLength) return word;
+        if (minLength = maxLength) return word;
 
-        // 随机选择截取长度
-        const cutLength = Math.floor(Math.random() * (maxLength - minLength)) + minLength;
+         随机选择截取长度
+        const cutLength = Math.floor(Math.random()  (maxLength - minLength)) + minLength;
 
         return word.substring(0, cutLength);
     },
 
-    // 依次应用加词和截取
+     依次应用加词和截取
     processSearchWord(word) {
-        // 先加词
+         先加词
         let processedWord = this.addRandomCharsToSearchWord(word);
-        // 再截取
+         再截取
         processedWord = this.cutSearchWordRandomly(processedWord);
         return processedWord;
     },
 
-    // 生成随机延迟
+     生成随机延迟
     getRandomDelay() {
-        return Math.random() * (CONFIG.maxDelay - CONFIG.minDelay) + CONFIG.minDelay;
+        return Math.random()  (CONFIG.maxDelay - CONFIG.minDelay) + CONFIG.minDelay;
     },
 
-    // 从区间内随机取暂停间隔
+     从区间内随机取暂停间隔
     getRandomPauseInterval() {
-        return Math.floor(Math.random() * (CONFIG.pauseIntervalMax - CONFIG.pauseIntervalMin + 1)) + CONFIG.pauseIntervalMin;
+        return Math.floor(Math.random()  (CONFIG.pauseIntervalMax - CONFIG.pauseIntervalMin + 1)) + CONFIG.pauseIntervalMin;
     },
 
-    // 从区间内随机取暂停时间
+     从区间内随机取暂停时间
     getRandomPauseTime() {
-        return Math.floor(Math.random() * (CONFIG.pauseTimeMax - CONFIG.pauseTimeMin + 1)) + CONFIG.pauseTimeMin;
+        return Math.floor(Math.random()  (CONFIG.pauseTimeMax - CONFIG.pauseTimeMin + 1)) + CONFIG.pauseTimeMin;
     },
 
-    // 随机选择一个启动参数（每天保持相同值）
+     随机选择一个启动参数（每天保持相同值）
     getRandomStartParam() {
-        // 获取今天的日期字符串（格式：YYYY-MM-DD）
+         获取今天的日期字符串（格式：YYYY-MM-DD）
         const today = utils.getTodayStr();
-        // 检查是否已经为今天选择了启动参数
+         检查是否已经为今天选择了启动参数
         const todayStartParamKey = 'todaySelectedStartParam';
         const todayStartParamDateKey = 'todaySelectedStartParamDate';
 
-        // 如果存储的日期不是今天，则重新选择
+         如果存储的日期不是今天，则重新选择
         if (GM_getValue(todayStartParamDateKey) !== today) {
-            // 随机选择一个新的启动参数
-            const startParam = CONFIG.startParams[Math.floor(Math.random() * CONFIG.startParams.length)];
-            // 存储选中的参数及其对应的日期
+             随机选择一个新的启动参数
+            const startParam = CONFIG.startParams[Math.floor(Math.random()  CONFIG.startParams.length)];
+             存储选中的参数及其对应的日期
             GM_setValue(todayStartParamKey, startParam);
             GM_setValue(todayStartParamDateKey, today);
             return startParam;
         } else {
-            // 返回当天已选择的参数
+             返回当天已选择的参数
             return GM_getValue(todayStartParamKey);
         }
     },
 
-    // 安全JSON解析
+     安全JSON解析
     safeJsonParse(str, defaultValue = null) {
         try {
             return JSON.parse(str);
@@ -1041,727 +1067,669 @@ const utils = {
         }
     },
 
-    // HTML转义（外部内容写入面板前必须转义，防止注入）
+     HTML转义（外部内容写入面板前必须转义，防止注入）
     escapeHtml(str) {
         return String(str)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
+            .replace(&g, '&amp;')
+            .replace(g, '&lt;')
+            .replace(g, '&gt;')
+            .replace(g, '&quot;')
+            .replace('g, '&#39;');
     },
 
-    // 获取本地日期字符串（格式：YYYY-MM-DD）
+     获取本地日期字符串（格式：YYYY-MM-DD）
     getTodayStr() {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     },
 
-    // 获取本地日期数字戳（格式：YYYYMMDD，APP 任务日期比较用，与 getTodayStr 同源）
+     获取本地日期数字戳（格式：YYYYMMDD，APP 任务日期比较用，与 getTodayStr 同源）
     getTodayNum() {
-        return Number(this.getTodayStr().replace(/-/g, ''));
+        return Number(this.getTodayStr().replace(-g, ''));
     },
 
-    // 自然日差值（忽略时刻，仅比较本地日期）：返回 toTs 相对 fromTs 相差的整天数
+     自然日差值（忽略时刻，仅比较本地日期）：返回 toTs 相对 fromTs 相差的整天数
     getCalendarDayDiff(fromTs, toTs) {
         const start = new Date(fromTs);
         start.setHours(0, 0, 0, 0);
         const end = new Date(toTs);
         end.setHours(0, 0, 0, 0);
-        // 四舍五入抵消夏令时导致的 23/25 小时日
-        return Math.round((end - start) / 86400000);
+         四舍五入抵消夏令时导致的 2325 小时日
+        return Math.round((end - start)  86400000);
     },
 
-    // 必应站点根地址：跟随当前页面所在域，避免对非国区用户强制跳转 cn 域
+     必应站点根地址：使用地区配置，避免跨区任务落到当前页面的其他站点。
     getBingOrigin() {
-        return /bing\.com$/i.test(location.hostname) ? location.origin : 'https://cn.bing.com';
+        return `https${getExecutionRegion().bingHost}`;
     },
 
-    // Fisher-Yates洗牌算法
+     Fisher-Yates洗牌算法
     shuffleArray(array) {
-        const result = [...array]; // 创建副本以避免修改原数组
-        for (let i = result.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [result[i], result[j]] = [result[j], result[i]]; // 交换元素
+        const result = [...array];  创建副本以避免修改原数组
+        for (let i = result.length - 1; i  0; i--) {
+            const j = Math.floor(Math.random()  (i + 1));
+            [result[i], result[j]] = [result[j], result[i]];  交换元素
         }
         return result;
     },
 
-    // 生成随机ID
+     生成随机ID
     generateId() {
         return Date.now().toString(36) + Math.random().toString(36).slice(2, 11);
     },
 
-    // 获取精确的剩余时间（不受标签页激活状态影响）
+     获取精确的剩余时间（不受标签页激活状态影响）
     getAccurateRemainingTime() {
-        if (!state.countdownStartTime || !state.countdownDuration) return 0;
+        if (!state.countdownStartTime  !state.countdownDuration) return 0;
 
         const elapsed = Date.now() - state.countdownStartTime;
         const remaining = Math.max(0, state.countdownDuration - elapsed);
-        return remaining / 1000; // 转换为秒
+        return remaining  1000;  转换为秒
     },
 
-    // 秒数格式化为 mm:ss（先向上取整再拆分，避免 59.6 秒被拆成 0:60）
+     秒数格式化为 mmss（先向上取整再拆分，避免 59.6 秒被拆成 060）
     formatClock(totalSeconds) {
         const total = Math.max(0, Math.ceil(totalSeconds));
-        return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+        return `${Math.floor(total  60)}${String(total % 60).padStart(2, '0')}`;
     },
 
-    // 检查页面是否可见
+     检查页面是否可见
     isPageVisible() {
         return !document.hidden;
     },
 
-    // 页面可见性变化处理
+     页面可见性变化处理
     handleVisibilityChange(callback) {
-        document.addEventListener('visibilitychange', () => {
+        document.addEventListener('visibilitychange', () = {
             if (!document.hidden) {
                 callback();
             }
         });
     },
 
-    // 获取ISO周数（返回1-53）
+     获取ISO周数（返回1-53）
     getWeekNumber(d) {
         const date = new Date(d);
         date.setHours(0, 0, 0, 0);
         date.setDate(date.getDate() + 3 - (date.getDay() + 6) % 7);
         const week1 = new Date(date.getFullYear(), 0, 4);
-        return 1 + Math.round(((date - week1) / 86400000 - 3 + (week1.getDay() + 6) % 7) / 7);
+        return 1 + Math.round(((date - week1)  86400000 - 3 + (week1.getDay() + 6) % 7)  7);
     },
 
-    // 获取当前年份和ISO周数组成的字符串，如 "2026-W27"
+     获取当前年份和ISO周数组成的字符串，如 2026-W27
     getWeekString() {
         const now = new Date();
         return now.getFullYear() + '-W' + String(this.getWeekNumber(now)).padStart(2, '0');
     }
 };
 
-// 统一日志入口（输出集中到脚本管理器日志，避免浏览器控制台与 GM 日志两种渠道混用）
-const log = msg => GM_log(msg);
+ 统一日志入口（输出集中到脚本管理器日志，避免浏览器控制台与 GM 日志两种渠道混用）
+const log = msg = GM_log(msg);
 
-// 延时等待（统一替代散落各处的 new Promise(resolve => setTimeout(resolve, ms))）
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+ 延时等待（统一替代散落各处的 new Promise(resolve = setTimeout(resolve, ms))）
+const sleep = ms = new Promise(resolve = setTimeout(resolve, ms));
 
-/**
- * 为按钮绑定悬停/按压样式（enter/leave/down/up 四态对应的 style 属性集合）
- */
+
+  为按钮绑定悬停按压样式（enterleavedownup 四态对应的 style 属性集合）
+ 
 function addButtonHoverEffects(btn, { enter, leave, down, up }) {
     if (!btn) return;
-    if (enter) btn.addEventListener('mouseenter', () => Object.assign(btn.style, enter));
-    if (leave) btn.addEventListener('mouseleave', () => Object.assign(btn.style, leave));
-    if (down) btn.addEventListener('mousedown', () => Object.assign(btn.style, down));
-    if (up) btn.addEventListener('mouseup', () => Object.assign(btn.style, up));
+    if (enter) btn.addEventListener('mouseenter', () = Object.assign(btn.style, enter));
+    if (leave) btn.addEventListener('mouseleave', () = Object.assign(btn.style, leave));
+    if (down) btn.addEventListener('mousedown', () = Object.assign(btn.style, down));
+    if (up) btn.addEventListener('mouseup', () = Object.assign(btn.style, up));
 }
 
-// 搜索词库
+ 搜索词库
 const SEARCH_WORDS = [
-    // 日常生活类
-    "今天天气怎么样", "附近有什么好吃的", "怎么做红烧肉", "天气预报",
-    "快递查询", "手机丢了怎么办", "忘记密码怎么找回", "如何办理身份证",
-    "地铁线路图", "公交时刻表", "医院挂号流程", "社保怎么交",
-    "个人所得税怎么算", "公积金提取条件", "居住证办理流程",
+     日常生活类
+    今天天气怎么样, 附近有什么好吃的, 怎么做红烧肉, 天气预报,
+    快递查询, 手机丢了怎么办, 忘记密码怎么找回, 如何办理身份证,
+    地铁线路图, 公交时刻表, 医院挂号流程, 社保怎么交,
+    个人所得税怎么算, 公积金提取条件, 居住证办理流程,
 
-    // 购物消费
-    "淘宝优惠券", "京东白条怎么用", "拼多多靠谱吗", "二手交易平台",
-    "哪个牌子的空调好", "冰箱怎么选", "洗衣机推荐", "扫地机器人测评",
-    "运动鞋品牌对比", "护肤品推荐", "化妆品正品查询",
+     购物消费
+    淘宝优惠券, 京东白条怎么用, 拼多多靠谱吗, 二手交易平台,
+    哪个牌子的空调好, 冰箱怎么选, 洗衣机推荐, 扫地机器人测评,
+    运动鞋品牌对比, 护肤品推荐, 化妆品正品查询,
 
-    // 美食餐饮
-    "附近奶茶店", "火锅底料做法", "蛋糕烘焙教程", "减肥餐食谱",
-    "早餐吃什么健康", "外卖平台哪个好", "咖啡机推荐", "空气炸锅食谱",
-    "家常菜做法", "烘焙入门教程", "日料制作", "西餐做法",
+     美食餐饮
+    附近奶茶店, 火锅底料做法, 蛋糕烘焙教程, 减肥餐食谱,
+    早餐吃什么健康, 外卖平台哪个好, 咖啡机推荐, 空气炸锅食谱,
+    家常菜做法, 烘焙入门教程, 日料制作, 西餐做法,
 
-    // 旅游出行
-    "周末去哪玩", "假期旅游攻略", "机票什么时候买便宜", "酒店比价",
-    "签证办理流程", "自驾游路线推荐", "背包客装备清单", "民宿预订平台",
-    "高铁票怎么抢", "航班延误怎么办", "旅行保险有必要吗",
+     旅游出行
+    周末去哪玩, 假期旅游攻略, 机票什么时候买便宜, 酒店比价,
+    签证办理流程, 自驾游路线推荐, 背包客装备清单, 民宿预订平台,
+    高铁票怎么抢, 航班延误怎么办, 旅行保险有必要吗,
 
-    // 学习工作
-    "Excel技巧大全", "PPT模板下载", "Python入门教程", "英语学习方法",
-    "考研复习资料", "公务员考试条件", "简历怎么写", "面试技巧",
-    "远程办公软件", "时间管理方法", "职场沟通技巧", "副业赚钱项目",
-    "在线课程平台", "编程学习路线", "数据分析工具",
+     学习工作
+    Excel技巧大全, PPT模板下载, Python入门教程, 英语学习方法,
+    考研复习资料, 公务员考试条件, 简历怎么写, 面试技巧,
+    远程办公软件, 时间管理方法, 职场沟通技巧, 副业赚钱项目,
+    在线课程平台, 编程学习路线, 数据分析工具,
 
-    // 娱乐休闲
-    "最近好看的电影", "Netflix推荐剧集", "switch游戏推荐", "Steam打折游戏",
-    "抖音热门视频", "B站up主推荐", "音乐播放器哪个好", "耳机音质对比",
-    "摄影入门教程", "吉他教学视频", "绘画学习app", "手账制作教程",
+     娱乐休闲
+    最近好看的电影, Netflix推荐剧集, switch游戏推荐, Steam打折游戏,
+    抖音热门视频, B站up主推荐, 音乐播放器哪个好, 耳机音质对比,
+    摄影入门教程, 吉他教学视频, 绘画学习app, 手账制作教程,
 
-    // 健康运动
-    "健身房怎么选", "瑜伽初学者动作", "跑步姿势纠正", "减脂增肌计划",
-    "失眠怎么办", "颈椎保健操", "护眼方法", "久坐危害",
-    "体检项目有哪些", "疫苗接种预约", "心理咨询哪里好", "中医调理方法",
+     健康运动
+    健身房怎么选, 瑜伽初学者动作, 跑步姿势纠正, 减脂增肌计划,
+    失眠怎么办, 颈椎保健操, 护眼方法, 久坐危害,
+    体检项目有哪些, 疫苗接种预约, 心理咨询哪里好, 中医调理方法,
 
-    // 科技数码
-    "WiFi信号增强方法", "电脑卡顿怎么办", "手机电池保养", "数据备份方案",
-    "智能家居设备推荐", "路由器怎么选", "NAS搭建教程", "云服务器价格",
-    "AI工具有哪些", "ChatGPT使用技巧", "VR眼镜值得买吗", "无人机航拍技巧",
+     科技数码
+    WiFi信号增强方法, 电脑卡顿怎么办, 手机电池保养, 数据备份方案,
+    智能家居设备推荐, 路由器怎么选, NAS搭建教程, 云服务器价格,
+    AI工具有哪些, ChatGPT使用技巧, VR眼镜值得买吗, 无人机航拍技巧,
 
-    // 金融理财
-    "基金定投策略", "股票开户流程", "理财产品对比", "信用卡积分兑换",
-    "房贷利率计算", "养老保险怎么交", "儿童教育金规划", "应急资金准备",
-    "通货膨胀影响", "黄金投资方式", "外汇交易入门", "税务筹划方法",
+     金融理财
+    基金定投策略, 股票开户流程, 理财产品对比, 信用卡积分兑换,
+    房贷利率计算, 养老保险怎么交, 儿童教育金规划, 应急资金准备,
+    通货膨胀影响, 黄金投资方式, 外汇交易入门, 税务筹划方法,
 
-    // 家居装修
-    "小户型装修灵感", "家具购买指南", "除甲醛方法", "智能家居安装",
-    "墙面颜色搭配", "厨房收纳技巧", "卫生间防水处理", "阳台改造方案",
-    "灯具选择建议", "窗帘搭配技巧", "地板材质对比", "装修公司怎么选",
+     家居装修
+    小户型装修灵感, 家具购买指南, 除甲醛方法, 智能家居安装,
+    墙面颜色搭配, 厨房收纳技巧, 卫生间防水处理, 阳台改造方案,
+    灯具选择建议, 窗帘搭配技巧, 地板材质对比, 装修公司怎么选,
 
-    // 亲子教育
-    "早教机构推荐", "儿童绘本清单", "学区房政策", "兴趣班选择",
-    "亲子游目的地", "儿童营养餐", "育儿经验分享", "家庭教育方法",
-    "暑假活动安排", "儿童安全常识", "青少年心理健康", "留学申请流程",
+     亲子教育
+    早教机构推荐, 儿童绘本清单, 学区房政策, 兴趣班选择,
+    亲子游目的地, 儿童营养餐, 育儿经验分享, 家庭教育方法,
+    暑假活动安排, 儿童安全常识, 青少年心理健康, 留学申请流程,
 
-    // 汽车交通
-    "新能源汽车补贴", "二手车估值", "驾校报名流程", "违章查询",
-    "车险怎么买划算", "汽车保养周期", "新能源车充电桩", "堵车路段查询",
-    "停车位怎么找", "共享汽车平台", "摩托车驾照考试", "电动车新国标",
+     汽车交通
+    新能源汽车补贴, 二手车估值, 驾校报名流程, 违章查询,
+    车险怎么买划算, 汽车保养周期, 新能源车充电桩, 堵车路段查询,
+    停车位怎么找, 共享汽车平台, 摩托车驾照考试, 电动车新国标,
 
-    // 宠物养护
-    "猫咪喂养指南", "狗狗训练方法", "宠物医院推荐", "猫粮品牌对比",
-    "宠物美容教程", "鱼缸 setup", "鸟笼清洁", "仓鼠饲养注意事项",
-    "宠物保险有必要吗", "流浪猫救助", "宠物寄养服务", "训犬师推荐",
+     宠物养护
+    猫咪喂养指南, 狗狗训练方法, 宠物医院推荐, 猫粮品牌对比,
+    宠物美容教程, 鱼缸 setup, 鸟笼清洁, 仓鼠饲养注意事项,
+    宠物保险有必要吗, 流浪猫救助, 宠物寄养服务, 训犬师推荐,
 
-    // 本地生活
-    "附近停车场", "药店营业时间", "超市促销信息", "理发店推荐",
-    "洗衣店价格", "修手机的地方", "开锁电话", "搬家公司收费",
-    "家政保洁服务", "管道疏通电话", "家电维修", "宠物洗澡",
+     本地生活
+    附近停车场, 药店营业时间, 超市促销信息, 理发店推荐,
+    洗衣店价格, 修手机的地方, 开锁电话, 搬家公司收费,
+    家政保洁服务, 管道疏通电话, 家电维修, 宠物洗澡,
 
-    // 实用工具查询
-    "汇率换算", "单位转换", "日历农历", "黄道吉日",
-    "成语解释", "诗词鉴赏", "历史事件查询", "名人传记",
-    "地图导航", "翻译软件", "计算器在线", "单位换算器"
+     实用工具查询
+    汇率换算, 单位转换, 日历农历, 黄道吉日,
+    成语解释, 诗词鉴赏, 历史事件查询, 名人传记,
+    地图导航, 翻译软件, 计算器在线, 单位换算器
 ];
 
 
-/**
- * 构建搜索URL
- */
+
+  构建搜索URL
+ 
 function buildSearchUrl(searchWord) {
     const domain = utils.getBingOrigin();
     const form = CONFIG.searchFormParam;
+    const region = getExecutionRegion();
 
     const length = searchWord.length;
-    const hitPosition = Math.random() < 0.9 ? 0 : Math.floor(Math.random() * Math.min(length, 5)) + 1;
+    const hitPosition = Math.random()  0.9  0  Math.floor(Math.random()  Math.min(length, 5)) + 1;
     const sc = `${hitPosition}-${length}`;
 
     const urlParams = new URLSearchParams({
-        q: searchWord,
+        q searchWord,
         form,
-        sp: -1,
-        lq: 0,
-        pq: searchWord,
+        sp -1,
+        lq 0,
+        pq searchWord,
         sc,
-        qs: 'n',
-        sk: '',
-        cvid: utils.generateId(),
+        qs 'n',
+        sk '',
+        cvid utils.generateId(),
+        cc region.country,
+        setlang region.language,
     });
 
     const startParam = utils.getRandomStartParam();
-    return `${domain}/search?${urlParams.toString()}&${startParam}=1`;
+    return `${domain}search${urlParams.toString()}&${startParam}=1`;
 }
 
-/**
- * 每周首次执行时显示提示（优化UI版 + 道歉语）
- */
-function showWeeklyTip() {
-    const currentWeek = utils.getWeekString();
-    const storedWeek = GM_getValue('lastWeeklyTipWeek', '');
-    if (currentWeek === storedWeek) return;
 
-    // 入场动画关键帧独立注入（原先依赖设置弹窗内的同名关键帧，未打开过弹窗时动画静默失效）
-    if (!document.getElementById('bing-rewards-animations')) {
-        const animStyle = document.createElement('style');
-        animStyle.id = 'bing-rewards-animations';
-        animStyle.textContent = '@keyframes dialogSlideIn { from { opacity: 0; transform: translateY(-30px) scale(0.92); } to { opacity: 1; transform: translateY(0) scale(1); } }';
-        document.head.appendChild(animStyle);
-    }
-
-    const overlay = document.createElement('div');
-    overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);animation:fadeIn 0.3s ease;';
-    overlay.innerHTML = `
-        <div style="background:#ffffff;border-radius:20px;padding:0;max-width:440px;width:92%;box-shadow:0 24px 80px rgba(0,0,0,0.3);position:relative;overflow:hidden;animation:dialogSlideIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);">
-            <div style="background:linear-gradient(135deg, #0067b8, #00bcf2);padding:28px 28px 20px;color:#fff;text-align:center;">
-                <button id="weekly-tip-close" style="position:absolute;top:12px;right:16px;background:rgba(255,255,255,0.2);border:none;width:32px;height:32px;border-radius:50%;font-size:18px;color:#fff;cursor:pointer;transition:background 0.2s, transform 0.15s;display:flex;align-items:center;justify-content:center;">✕</button>
-                <div style="font-size:48px;line-height:1;margin-bottom:8px;">⭐</div>
-                <div style="font-size:20px;font-weight:700;letter-spacing:-0.3px;">支持作者</div>
-                <div style="font-size:13px;opacity:0.85;margin-top:4px;">您的 Star 是我持续更新的动力</div>
-            </div>
-            <div style="padding:24px 28px 80px 28px;position:relative;">
-                <p style="font-size:15px;color:#333;line-height:1.7;margin:0 0 8px 0;">
-                    本脚本完全免费，如果对你有帮助，请给作者一个 <strong style="color:#0067b8;">Star</strong> 支持一下！
-                </p>
-                <div style="font-size:12px;color:#bbb;margin-top:8px;text-align:center;">
-                    〒 本通知一周弹一次，如有打扰，非常抱歉。
-                </div>
-                <button id="weekly-tip-support" style="position:absolute;bottom:24px;right:28px;padding:12px 28px;background:linear-gradient(135deg,#0067b8,#00bcf2);color:#fff;border:none;border-radius:40px;font-size:16px;font-weight:600;cursor:pointer;transition:transform 0.15s, box-shadow 0.2s;box-shadow:0 6px 20px rgba(0,103,184,0.35);letter-spacing:0.3px;">前往支持</button>
-            </div>
-        </div>
-    `;
-
-    const supportBtn = overlay.querySelector('#weekly-tip-support');
-    const closeTipBtn = overlay.querySelector('#weekly-tip-close');
-    addButtonHoverEffects(supportBtn, {
-        enter: { transform: 'scale(1.05)', boxShadow: '0 8px 28px rgba(0, 103, 184, 0.5)' },
-        leave: { transform: 'scale(1)', boxShadow: '0 6px 20px rgba(0, 103, 184, 0.35)' },
-        down: { transform: 'scale(0.95)' },
-        up: { transform: 'scale(1.05)' }
-    });
-    supportBtn.onclick = () => {
-        window.open('https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/', '_blank');
-        overlay.remove();
-    };
-    addButtonHoverEffects(closeTipBtn, {
-        enter: { background: 'rgba(255,255,255,0.35)', transform: 'scale(1.1)' },
-        leave: { background: 'rgba(255,255,255,0.2)', transform: 'scale(1)' }
-    });
-    closeTipBtn.onclick = () => overlay.remove();
-
-    document.body.appendChild(overlay);
-
-    GM_setValue('lastWeeklyTipWeek', currentWeek);
-}
-
-/**
- * 创建状态面板
- */
+  创建状态面板
+ 
 function createStatusPanel() {
     if (state.statusPanel) return state.statusPanel;
 
     const panel = document.createElement('div');
     panel.id = 'bing-rewards-panel';
 
-    // 从配置中读取默认展开/收缩状态
+     从配置中读取默认展开收缩状态
     const defaultCollapsed = CONFIG.panelDefaultCollapsed;
     state.isPanelCollapsed = defaultCollapsed;
 
     panel.innerHTML = `
-        <div id="panel-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0;">
-            <div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">
-                <div id="panel-title-container" style="flex:1;min-width:0;">
-                    <h3 style="margin:0;font-size:16px;color:var(--panel-primary-color,#0067b8);white-space:nowrap;font-weight:700;letter-spacing:-0.3px;">
+        div id=panel-header style=displayflex;justify-contentspace-between;align-itemscenter;margin-bottom0;
+            div style=displayflex;align-itemscenter;gap10px;flex1;min-width0;
+                div id=panel-title-container style=flex1;min-width0;
+                    h3 style=margin0;font-size16px;colorvar(--panel-primary-color,#0067b8);white-spacenowrap;font-weight700;letter-spacing-0.3px;
                         Brian Tool
-                    </h3>
-                    <div style="font-size:11px;color:var(--panel-text-muted,#999);margin-top:2px;font-weight:500;">
+                    h3
+                    div style=font-size11px;colorvar(--panel-text-muted,#999);margin-top2px;font-weight500;
                         自动化搜索任务助手
-                    </div>
-                </div>
-                <div id="panel-countdown" style="font-size:12px;color:var(--panel-text-secondary,#666);white-space:nowrap;font-weight:600;margin-left:12px;padding:6px 12px;background:linear-gradient(135deg,var(--panel-hover-bg,#f5f5f5),var(--panel-bg,#fff));border-radius:8px;border:1px solid var(--panel-border,#eee);box-shadow:0 2px 6px rgba(0,0,0,0.05);"></div>
-            </div>
-            <div style="display:flex;align-items:center;gap:8px;margin-left:12px;">
-                <div id="panel-toggle-btn" style="cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);flex-shrink:0;background:transparent;user-select:none;position:relative;" title="${defaultCollapsed ? '展开面板' : '收起面板'}">
-                    <span id="toggle-icon" style="font-size:16px;line-height:1;display:inline-block;transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);transform:rotate(${defaultCollapsed ? '0deg' : '180deg'});">🔽</span>
-                </div>
-                <div id="panel-settings-btn" style="cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);flex-shrink:0;background:transparent;font-size:18px;user-select:none;" title="打开设置">
+                    div
+                div
+                div id=panel-countdown style=font-size12px;colorvar(--panel-text-secondary,#666);white-spacenowrap;font-weight600;margin-left12px;padding6px 12px;backgroundlinear-gradient(135deg,var(--panel-hover-bg,#f5f5f5),var(--panel-bg,#fff));border-radius8px;border1px solid var(--panel-border,#eee);box-shadow0 2px 6px rgba(0,0,0,0.05);div
+            div
+            div style=displayflex;align-itemscenter;gap8px;margin-left12px;
+                div id=panel-toggle-btn style=cursorpointer;width32px;height32px;displayflex;align-itemscenter;justify-contentcenter;border-radius8px;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);flex-shrink0;backgroundtransparent;user-selectnone;positionrelative; title=${defaultCollapsed  '展开面板'  '收起面板'}
+                    span id=toggle-icon style=font-size16px;line-height1;displayinline-block;transitiontransform 0.3s cubic-bezier(0.4,0,0.2,1);transformrotate(${defaultCollapsed  '0deg'  '180deg'});🔽span
+                div
+                div id=panel-settings-btn style=cursorpointer;width32px;height32px;displayflex;align-itemscenter;justify-contentcenter;border-radius8px;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);flex-shrink0;backgroundtransparent;font-size18px;user-selectnone; title=打开设置
                     ⚙️
-                </div>
-                <div id="panel-close-btn" style="cursor:pointer;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);flex-shrink:0;background:transparent;font-size:16px;user-select:none;" title="关闭面板">
+                div
+                div id=panel-close-btn style=cursorpointer;width32px;height32px;displayflex;align-itemscenter;justify-contentcenter;border-radius8px;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);flex-shrink0;backgroundtransparent;font-size16px;user-selectnone; title=关闭面板
                     ✕
-                </div>
-            </div>
-        </div>
-        <div id="panel-body" style="animation:slideDown 0.3s cubic-bezier(0.4,0,0.2,1);">
-            <div id="panel-content"></div>
-            <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--panel-border,#eee);display:flex;justify-content:space-between;align-items:center;gap:8px;">
-                <span id="page-status" style="display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--panel-text-muted,#999);font-weight:500;white-space:nowrap;">
-                    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#107c10;box-shadow:0 0 6px rgba(16,124,16,0.5);animation:pulse 2s ease-in-out infinite;"></span>
-                    <span id="page-status-text">页面活跃</span>
-                </span>
-                <span id="task-running-status" style="display:none;align-items:center;gap:5px;font-size:11px;color:var(--panel-primary-color,#0067b8);font-weight:600;">
-                    <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--panel-primary-color,#0067b8);animation:pulse 1.5s ease-in-out infinite;"></span>
+                div
+            div
+        div
+        div id=panel-body style=animationslideDown 0.3s cubic-bezier(0.4,0,0.2,1);
+            div id=panel-contentdiv
+            div style=margin-top16px;padding-top14px;border-top1px solid var(--panel-border,#eee);displayflex;justify-contentspace-between;align-itemscenter;gap8px;
+                span id=page-status style=displayinline-flex;align-itemscenter;gap6px;font-size11px;colorvar(--panel-text-muted,#999);font-weight500;white-spacenowrap;
+                    span style=displayinline-block;width8px;height8px;border-radius50%;background#107c10;box-shadow0 0 6px rgba(16,124,16,0.5);animationpulse 2s ease-in-out infinite;span
+                    span id=page-status-text页面活跃span
+                span
+                span id=task-running-status style=displaynone;align-itemscenter;gap5px;font-size11px;colorvar(--panel-primary-color,#0067b8);font-weight600;
+                    span style=displayinline-block;width6px;height6px;border-radius50%;backgroundvar(--panel-primary-color,#0067b8);animationpulse 1.5s ease-in-out infinite;span
                     正在执行搜索任务...
-                </span>
-                <span style="font-size:10px;color:var(--panel-text-muted,#999);opacity:0.6;font-weight:500;white-space:nowrap;">v${GM_info.script.version}</span>
-            </div>
-        </div>
+                span
+                span style=font-size10px;colorvar(--panel-text-muted,#999);opacity0.6;font-weight500;white-spacenowrap;v${GM_info.script.version}span
+            div
+        div
     `;
 
-    // 添加CSS动画样式
+     添加CSS动画样式
     const styleElement = document.createElement('style');
     styleElement.textContent = `
         @keyframes pulse {
             0%, 100% {
-                opacity: 1;
-                transform: scale(1);
+                opacity 1;
+                transform scale(1);
             }
             50% {
-                opacity: 0.6;
-                transform: scale(1.2);
+                opacity 0.6;
+                transform scale(1.2);
             }
         }
 
         @keyframes slideDown {
             from {
-                opacity: 0;
-                transform: translateY(-10px);
-                max-height: 0;
+                opacity 0;
+                transform translateY(-10px);
+                max-height 0;
             }
             to {
-                opacity: 1;
-                transform: translateY(0);
-                max-height: 1000px;
+                opacity 1;
+                transform translateY(0);
+                max-height 1000px;
             }
         }
 
         @keyframes fadeIn {
             from {
-                opacity: 0;
-                transform: translateY(-5px);
+                opacity 0;
+                transform translateY(-5px);
             }
             to {
-                opacity: 1;
-                transform: translateY(0);
+                opacity 1;
+                transform translateY(0);
             }
         }
 
-        /* ===== 基础布局（桌面 >1024px，尺寸/位置全部由 CSS 管理，JS 仅切换状态类） ===== */
+         ===== 基础布局（桌面 1024px，尺寸位置全部由 CSS 管理，JS 仅切换状态类） ===== 
         #bing-rewards-panel {
-            position: fixed;
-            bottom: 50px;
-            right: 20px;
-            border-radius: 20px;
-            padding: 24px;
-            /* 宽度计算含 padding/border，避免小屏 min-width 撑破视口导致左侧遮挡 */
-            box-sizing: border-box;
-            min-width: 380px;
-            max-width: 420px;
-            /* 展开态防溢出：内容过多时面板内部滚动 */
-            max-height: calc(100vh - 80px);
-            overflow-y: auto;
-            box-shadow: 0 16px 48px var(--panel-shadow), 0 0 0 1px var(--panel-border), 0 0 80px var(--panel-primary-glow);
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position fixed;
+            bottom 50px;
+            right 20px;
+            border-radius 20px;
+            padding 24px;
+             宽度计算含 paddingborder，避免小屏 min-width 撑破视口导致左侧遮挡 
+            box-sizing border-box;
+            min-width 380px;
+            max-width 420px;
+             展开态防溢出：内容过多时面板内部滚动 
+            max-height calc(100vh - 80px);
+            overflow-y auto;
+            box-shadow 0 16px 48px var(--panel-shadow), 0 0 0 1px var(--panel-border), 0 0 80px var(--panel-primary-glow);
+            transition all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* 自定义滚动条（深浅色主题由变量适配） */
-        #bing-rewards-panel::-webkit-scrollbar {
-            width: 6px;
+         自定义滚动条（深浅色主题由变量适配） 
+        #bing-rewards-panel-webkit-scrollbar {
+            width 6px;
         }
-        #bing-rewards-panel::-webkit-scrollbar-track {
-            background: transparent;
+        #bing-rewards-panel-webkit-scrollbar-track {
+            background transparent;
         }
-        #bing-rewards-panel::-webkit-scrollbar-thumb {
-            background: var(--panel-text-muted);
-            border-radius: 3px;
-            opacity: 0.4;
+        #bing-rewards-panel-webkit-scrollbar-thumb {
+            background var(--panel-text-muted);
+            border-radius 3px;
+            opacity 0.4;
         }
 
-        /* 展开态头部底部留白（收缩态重置，见下方状态类规则） */
+         展开态头部底部留白（收缩态重置，见下方状态类规则） 
         #bing-rewards-panel #panel-header {
-            padding-bottom: 16px;
+            padding-bottom 16px;
         }
 
-        /* 展开态隐藏倒计时（收缩态显示，见下方状态类规则） */
+         展开态隐藏倒计时（收缩态显示，见下方状态类规则） 
         #bing-rewards-panel #panel-countdown {
-            display: none;
+            display none;
         }
 
-        /* ===== 收缩状态（所有断点一致交互：类切换即完成视觉转换） ===== */
+         ===== 收缩状态（所有断点一致交互：类切换即完成视觉转换） ===== 
         #bing-rewards-panel.collapsed {
-            padding: 10px 16px;
-            min-width: 200px;
-            width: fit-content;
-            max-height: none;
-            overflow-y: visible;
-            box-shadow: 0 8px 24px var(--panel-shadow), 0 0 0 1px var(--panel-border);
+            padding 10px 16px;
+            min-width 200px;
+            width fit-content;
+            max-height none;
+            overflow-y visible;
+            box-shadow 0 8px 24px var(--panel-shadow), 0 0 0 1px var(--panel-border);
         }
-        /* 收缩态重置头部底部内边距，消除多余高度 */
+         收缩态重置头部底部内边距，消除多余高度 
         #bing-rewards-panel.collapsed #panel-header {
-            padding-bottom: 0;
+            padding-bottom 0;
         }
         #bing-rewards-panel.collapsed #panel-body {
-            display: none;
+            display none;
         }
         #bing-rewards-panel.collapsed #panel-title-container {
-            display: none;
+            display none;
         }
         #bing-rewards-panel.collapsed #panel-countdown {
-            display: block;
+            display block;
         }
 
-        /* ===== 响应式断点（@media 平铺写法，兼容不支持 CSS 嵌套的旧浏览器） ===== */
+         ===== 响应式断点（@media 平铺写法，兼容不支持 CSS 嵌套的旧浏览器） ===== 
 
-        /* 平板横屏/窄桌面 ≤1024px */
-        @media (max-width: 1024px) {
+         平板横屏窄桌面 ≤1024px 
+        @media (max-width 1024px) {
             #bing-rewards-panel {
-                right: 16px;
-                max-width: 440px;
+                right 16px;
+                max-width 440px;
             }
             #bing-rewards-panel.collapsed {
-                max-width: 60vw;
-            }
-        }
-
-        /* 平板竖屏/大屏手机 ≤768px */
-        @media (max-width: 768px) {
-            #bing-rewards-panel {
-                right: 12px;
-                bottom: 24px;
-                min-width: calc(100vw - 48px);
-                max-width: calc(100vw - 48px);
-                border-radius: 16px;
-                max-height: calc(100vh - 48px);
-            }
-            #bing-rewards-panel.collapsed {
-                min-width: 0;
-                max-width: 60vw;
+                max-width 60vw;
             }
         }
 
-        /* 手机 ≤480px */
-        @media (max-width: 480px) {
+         平板竖屏大屏手机 ≤768px 
+        @media (max-width 768px) {
             #bing-rewards-panel {
-                right: 12px;
-                bottom: 12px;
-                padding: 14px;
-                min-width: calc(100vw - 24px);
-                max-width: calc(100vw - 24px);
-                max-height: calc(100vh - 40px);
+                right 12px;
+                bottom 24px;
+                min-width calc(100vw - 48px);
+                max-width calc(100vw - 48px);
+                border-radius 16px;
+                max-height calc(100vh - 48px);
             }
             #bing-rewards-panel.collapsed {
-                padding: 10px 14px;
-                max-width: 70vw;
+                min-width 0;
+                max-width 60vw;
+            }
+        }
+
+         手机 ≤480px 
+        @media (max-width 480px) {
+            #bing-rewards-panel {
+                right 12px;
+                bottom 12px;
+                padding 14px;
+                min-width calc(100vw - 24px);
+                max-width calc(100vw - 24px);
+                max-height calc(100vh - 40px);
+            }
+            #bing-rewards-panel.collapsed {
+                padding 10px 14px;
+                max-width 70vw;
             }
 
-            /* 面板头部响应式 */
+             面板头部响应式 
             #bing-rewards-panel #panel-header {
-                padding: 0 0 10px 0;
-                gap: 6px;
+                padding 0 0 10px 0;
+                gap 6px;
             }
 
-            /* 面板头部标题容器 */
+             面板头部标题容器 
             #bing-rewards-panel #panel-title-container h3 {
-                font-size: 14px;
+                font-size 14px;
             }
 
             #bing-rewards-panel #panel-title-container div {
-                font-size: 10px;
+                font-size 10px;
             }
 
-            /* 倒计时响应式 */
+             倒计时响应式 
             #bing-rewards-panel #panel-countdown {
-                font-size: 11px;
-                padding: 5px 10px;
-                margin-left: 8px;
+                font-size 11px;
+                padding 5px 10px;
+                margin-left 8px;
             }
 
-            /* 按钮响应式 */
+             按钮响应式 
             #bing-rewards-panel #panel-toggle-btn,
             #bing-rewards-panel #panel-settings-btn,
             #bing-rewards-panel #panel-close-btn {
-                width: 28px;
-                height: 28px;
-                font-size: 14px;
+                width 28px;
+                height 28px;
+                font-size 14px;
             }
 
-            /* 面板底部状态栏响应式 */
-            #bing-rewards-panel #panel-body > div:last-child {
-                flex-wrap: wrap;
-                gap: 6px;
-                padding-top: 10px;
-                margin-top: 12px;
+             面板底部状态栏响应式 
+            #bing-rewards-panel #panel-body  divlast-child {
+                flex-wrap wrap;
+                gap 6px;
+                padding-top 10px;
+                margin-top 12px;
             }
 
-            /* 任务摘要行（单行 4 列）小屏保持单行：列内 ellipsis 收缩防溢出 */
-            #bing-rewards-panel #panel-content > div {
-                gap: 8px;
+             任务摘要行（单行 4 列）小屏保持单行：列内 ellipsis 收缩防溢出 
+            #bing-rewards-panel #panel-content  div {
+                gap 8px;
             }
         }
 
-        /* 小屏手机 ≤360px */
-        @media (max-width: 360px) {
+         小屏手机 ≤360px 
+        @media (max-width 360px) {
             #bing-rewards-panel {
-                padding: 12px;
-                min-width: calc(100vw - 16px);
-                max-width: calc(100vw - 16px);
+                padding 12px;
+                min-width calc(100vw - 16px);
+                max-width calc(100vw - 16px);
             }
             #bing-rewards-panel.collapsed {
-                max-width: 72vw;
+                max-width 72vw;
             }
 
-            /* 隐藏副标题，保留主标题 */
+             隐藏副标题，保留主标题 
             #bing-rewards-panel #panel-title-container div {
-                display: none;
+                display none;
             }
 
             #bing-rewards-panel #panel-title-container h3 {
-                font-size: 13px;
+                font-size 13px;
             }
 
             #bing-rewards-panel #panel-toggle-btn,
             #bing-rewards-panel #panel-settings-btn,
             #bing-rewards-panel #panel-close-btn {
-                width: 26px;
-                height: 26px;
-                font-size: 13px;
+                width 26px;
+                height 26px;
+                font-size 13px;
             }
         }
     `;
     document.head.appendChild(styleElement);
 
-    // 检测系统主题并应用相应的CSS变量
-    const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+     检测系统主题并应用相应的CSS变量
+    const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme dark)').matches;
 
-    // 定义主题变量
+     定义主题变量
     const themeVariables = {
-        light: {
-            '--panel-bg': '#ffffff',
-            '--panel-border': '#e0e0e0',
-            '--panel-shadow': 'rgba(0, 0, 0, 0.1)',
-            '--panel-primary-color': '#0067b8',
-            '--panel-text-primary': '#1a1a1a',
-            '--panel-text-secondary': '#666666',
-            '--panel-text-muted': '#999999',
-            '--panel-progress-bg': '#f0f0f0',
-            '--panel-success-bg': '#f0f9f0',
-            '--panel-success-text': '#107c10',
-            '--panel-warning-bg': '#fff8e6',
-            '--panel-warning-border': '#ffb900',
-            '--panel-warning-color': '#8a6900',
-            '--panel-warning-text': '#8a6900',
-            '--panel-info-bg': '#f0f7ff',
-            '--panel-info-text': '#005a9e',
-            '--panel-hover-bg': '#f5f5f5',
-            '--panel-primary-glow': 'rgba(0, 103, 184, 0.06)'
+        light {
+            '--panel-bg' '#ffffff',
+            '--panel-border' '#e0e0e0',
+            '--panel-shadow' 'rgba(0, 0, 0, 0.1)',
+            '--panel-primary-color' '#0067b8',
+            '--panel-text-primary' '#1a1a1a',
+            '--panel-text-secondary' '#666666',
+            '--panel-text-muted' '#999999',
+            '--panel-progress-bg' '#f0f0f0',
+            '--panel-success-bg' '#f0f9f0',
+            '--panel-success-text' '#107c10',
+            '--panel-warning-bg' '#fff8e6',
+            '--panel-warning-border' '#ffb900',
+            '--panel-warning-color' '#8a6900',
+            '--panel-warning-text' '#8a6900',
+            '--panel-info-bg' '#f0f7ff',
+            '--panel-info-text' '#005a9e',
+            '--panel-hover-bg' '#f5f5f5',
+            '--panel-primary-glow' 'rgba(0, 103, 184, 0.06)'
         },
-        dark: {
-            '--panel-bg': '#1e1e1e',
-            '--panel-border': '#3f3f3f',
-            '--panel-shadow': 'rgba(0, 0, 0, 0.4)',
-            '--panel-primary-color': '#4fc3f7',
-            '--panel-text-primary': '#e0e0e0',
-            '--panel-text-secondary': '#b0b0b0',
-            '--panel-text-muted': '#888888',
-            '--panel-progress-bg': '#2d2d2d',
-            '--panel-success-bg': '#1a3a1a',
-            '--panel-success-text': '#4caf50',
-            '--panel-warning-bg': '#3d3520',
-            '--panel-warning-border': '#ffa726',
-            '--panel-warning-color': '#ffd54f',
-            '--panel-warning-text': '#ffd54f',
-            '--panel-info-bg': '#1a2a3a',
-            '--panel-info-text': '#64b5f6',
-            '--panel-hover-bg': '#2a2a2a',
-            '--panel-primary-glow': 'rgba(79, 195, 247, 0.08)'
+        dark {
+            '--panel-bg' '#1e1e1e',
+            '--panel-border' '#3f3f3f',
+            '--panel-shadow' 'rgba(0, 0, 0, 0.4)',
+            '--panel-primary-color' '#4fc3f7',
+            '--panel-text-primary' '#e0e0e0',
+            '--panel-text-secondary' '#b0b0b0',
+            '--panel-text-muted' '#888888',
+            '--panel-progress-bg' '#2d2d2d',
+            '--panel-success-bg' '#1a3a1a',
+            '--panel-success-text' '#4caf50',
+            '--panel-warning-bg' '#3d3520',
+            '--panel-warning-border' '#ffa726',
+            '--panel-warning-color' '#ffd54f',
+            '--panel-warning-text' '#ffd54f',
+            '--panel-info-bg' '#1a2a3a',
+            '--panel-info-text' '#64b5f6',
+            '--panel-hover-bg' '#2a2a2a',
+            '--panel-primary-glow' 'rgba(79, 195, 247, 0.08)'
         }
     };
 
-    const theme = isDarkMode ? themeVariables.dark : themeVariables.light;
+    const theme = isDarkMode  themeVariables.dark  themeVariables.light;
 
-    // 尺寸/位置/内边距/阴影全部由 CSS 状态类管理（响应式断点统一生效），内联仅保留主题与视觉特性
+     尺寸位置内边距阴影全部由 CSS 状态类管理（响应式断点统一生效），内联仅保留主题与视觉特性
     if (defaultCollapsed) {
         panel.classList.add('collapsed');
     }
     Object.assign(panel.style, {
-        position: 'fixed',
-        background: theme['--panel-bg'],
-        border: `1px solid ${theme['--panel-border']}`,
-        zIndex: '10000',
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-        fontSize: '13px',
-        backdropFilter: 'blur(20px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-        color: theme['--panel-text-primary'],
-        letterSpacing: '-0.2px'
+        position 'fixed',
+        background theme['--panel-bg'],
+        border `1px solid ${theme['--panel-border']}`,
+        zIndex '10000',
+        fontFamily '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica Neue, Arial, sans-serif',
+        fontSize '13px',
+        backdropFilter 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter 'blur(20px) saturate(180%)',
+        color theme['--panel-text-primary'],
+        letterSpacing '-0.2px'
     });
 
-    // 设置CSS变量
-    Object.entries(theme).forEach(([key, value]) => {
+     设置CSS变量
+    Object.entries(theme).forEach(([key, value]) = {
         panel.style.setProperty(key, value);
     });
 
     document.body.appendChild(panel);
     state.statusPanel = panel;
-    // 重置渲染签名，确保新面板首次渲染必定生效
+     重置渲染签名，确保新面板首次渲染必定生效
     state.panelSignature = '';
 
-    // 为展开/收缩按钮添加事件监听器
+     为展开收缩按钮添加事件监听器
     const toggleBtn = document.getElementById('panel-toggle-btn');
     const panelBody = document.getElementById('panel-body');
     const panelHeader = document.getElementById('panel-header');
     const countdownElement = document.getElementById('panel-countdown');
 
     if (toggleBtn && panelBody && panelHeader) {
-        toggleBtn.addEventListener('click', () => {
+        toggleBtn.addEventListener('click', () = {
             state.isPanelCollapsed = !state.isPanelCollapsed;
 
-            // 同步更新 Config 的缓存值
+             同步更新 Config 的缓存值
             CONFIG.panelDefaultCollapsed = state.isPanelCollapsed;
 
-            // 状态切换由 CSS 类驱动：body 显隐、标题/倒计时切换、尺寸/阴影/内边距在所有断点下统一生效
+             状态切换由 CSS 类驱动：body 显隐、标题倒计时切换、尺寸阴影内边距在所有断点下统一生效
             panel.classList.toggle('collapsed', state.isPanelCollapsed);
             const toggleIcon = document.getElementById('toggle-icon');
             if (toggleIcon) {
-                toggleIcon.style.transform = state.isPanelCollapsed ? 'rotate(0deg)' : 'rotate(180deg)';
+                toggleIcon.style.transform = state.isPanelCollapsed  'rotate(0deg)'  'rotate(180deg)';
             }
-            toggleBtn.title = state.isPanelCollapsed ? '展开面板' : '收起面板';
+            toggleBtn.title = state.isPanelCollapsed  '展开面板'  '收起面板';
 
-            // 立即更新面板内容以刷新倒计时显示
+             立即更新面板内容以刷新倒计时显示
             updateStatusPanel();
 
-            // 展开面板时实时获取最新任务数据
+             展开面板时实时获取最新任务数据
             if (!state.isPanelCollapsed) {
                 refreshAppTaskPanelData();
             }
         });
 
-        // 添加悬停效果（复用通用 helper；箭头图标的旋转状态仅由点击逻辑维护）
+         添加悬停效果（复用通用 helper；箭头图标的旋转状态仅由点击逻辑维护）
         addButtonHoverEffects(toggleBtn, {
-            enter: { backgroundColor: theme['--panel-hover-bg'], boxShadow: '0 2px 8px rgba(0,0,0,0.1)' },
-            leave: { backgroundColor: 'transparent', boxShadow: 'none' }
+            enter { backgroundColor theme['--panel-hover-bg'], boxShadow '0 2px 8px rgba(0,0,0,0.1)' },
+            leave { backgroundColor 'transparent', boxShadow 'none' }
         });
     }
 
-    // 为设置按钮添加事件监听器
+     为设置按钮添加事件监听器
     const settingsBtn = document.getElementById('panel-settings-btn');
     if (settingsBtn) {
-        settingsBtn.addEventListener('click', () => {
+        settingsBtn.addEventListener('click', () = {
             showSettingsDialog(theme);
         });
 
-        // 添加悬停效果
+         添加悬停效果
         addButtonHoverEffects(settingsBtn, {
-            enter: { backgroundColor: theme['--panel-hover-bg'], transform: 'scale(1.1) rotate(30deg)', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' },
-            leave: { backgroundColor: 'transparent', transform: 'scale(1) rotate(0deg)', boxShadow: 'none' },
-            down: { transform: 'scale(0.95) rotate(30deg)' },
-            up: { transform: 'scale(1.1) rotate(30deg)' }
+            enter { backgroundColor theme['--panel-hover-bg'], transform 'scale(1.1) rotate(30deg)', boxShadow '0 2px 8px rgba(0,0,0,0.1)' },
+            leave { backgroundColor 'transparent', transform 'scale(1) rotate(0deg)', boxShadow 'none' },
+            down { transform 'scale(0.95) rotate(30deg)' },
+            up { transform 'scale(1.1) rotate(30deg)' }
         });
     }
 
-    // 为关闭按钮添加事件监听器
+     为关闭按钮添加事件监听器
     const closeBtn = document.getElementById('panel-close-btn');
     if (closeBtn) {
-        closeBtn.addEventListener('click', () => {
+        closeBtn.addEventListener('click', () = {
             panel.style.display = 'none';
         });
 
-        // 添加悬停效果
+         添加悬停效果
         addButtonHoverEffects(closeBtn, {
-            enter: { backgroundColor: '#ffebee', color: '#f44336', transform: 'scale(1.1) rotate(90deg)', boxShadow: '0 2px 8px rgba(244,67,54,0.2)' },
-            leave: { backgroundColor: 'transparent', color: theme['--panel-text-secondary'], transform: 'scale(1) rotate(0deg)', boxShadow: 'none' },
-            down: { transform: 'scale(0.95) rotate(90deg)' },
-            up: { transform: 'scale(1.1) rotate(90deg)' }
+            enter { backgroundColor '#ffebee', color '#f44336', transform 'scale(1.1) rotate(90deg)', boxShadow '0 2px 8px rgba(244,67,54,0.2)' },
+            leave { backgroundColor 'transparent', color theme['--panel-text-secondary'], transform 'scale(1) rotate(0deg)', boxShadow 'none' },
+            down { transform 'scale(0.95) rotate(90deg)' },
+            up { transform 'scale(1.1) rotate(90deg)' }
         });
     }
 
-    // 监听系统主题变化
+     监听系统主题变化
     if (window.matchMedia) {
-        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        const handleThemeChange = (e) => {
-            const newTheme = e.matches ? themeVariables.dark : themeVariables.light;
+        const mediaQuery = window.matchMedia('(prefers-color-scheme dark)');
+        const handleThemeChange = (e) = {
+            const newTheme = e.matches  themeVariables.dark  themeVariables.light;
 
-            // 更新面板背景
+             更新面板背景
             panel.style.background = newTheme['--panel-bg'];
             panel.style.borderColor = newTheme['--panel-border'];
             panel.style.color = newTheme['--panel-text-primary'];
-            // 阴影由 CSS 状态类引用变量渲染（--panel-shadow/--panel-border/--panel-primary-glow），更新变量即自动生效
+             阴影由 CSS 状态类引用变量渲染（--panel-shadow--panel-border--panel-primary-glow），更新变量即自动生效
 
-            // 更新CSS变量
-            Object.entries(newTheme).forEach(([key, value]) => {
+             更新CSS变量
+            Object.entries(newTheme).forEach(([key, value]) = {
                 panel.style.setProperty(key, value);
             });
 
-            // 更新按钮颜色
+             更新按钮颜色
             if (toggleBtn) {
                 toggleBtn.style.color = newTheme['--panel-text-secondary'];
             }
@@ -1772,11 +1740,11 @@ function createStatusPanel() {
                 closeBtn.style.color = newTheme['--panel-text-secondary'];
             }
 
-            // 重新渲染面板内容
+             重新渲染面板内容
             updateStatusPanel();
         };
 
-        // 兼容不同浏览器
+         兼容不同浏览器
         if (mediaQuery.addEventListener) {
             mediaQuery.addEventListener('change', handleThemeChange);
         } else if (mediaQuery.addListener) {
@@ -1784,1128 +1752,1139 @@ function createStatusPanel() {
         }
     }
 
-    // 监听页面可见性变化
+     监听页面可见性变化
     utils.handleVisibilityChange(updateStatusPanel);
 
-    // 面板创建后实时获取任务数据（页面刷新后进度实时同步）
+     面板创建后实时获取任务数据（页面刷新后进度实时同步）
     refreshAppTaskPanelData();
 
     updateStatusPanel();
     return panel;
 }
 
-/**
- * 显示设置对话框
- */
+
+  显示设置对话框
+ 
 function showSettingsDialog(theme) {
-    // 检查是否已存在对话框
+     检查是否已存在对话框
     const existingDialog = document.getElementById('settings-dialog');
     if (existingDialog) {
         existingDialog.remove();
     }
 
-    // 每次打开对话框时重新获取最新配置值（CONFIG getter 实时读取 GM 存储，无缓存）
+     每次打开对话框时重新获取最新配置值（CONFIG getter 实时读取 GM 存储，无缓存）
     const saved = {};
-    Object.keys(CONFIG_SCHEMA).forEach(name => {
+    Object.keys(CONFIG_SCHEMA).forEach(name = {
         saved[name] = CONFIG[name];
     });
-    // 面板展示单位换算：暂停时间毫秒→分钟，搜索延迟毫秒→秒
-    const savedPauseTimeMin = saved.pauseTimeMin / 60000;
-    const savedPauseTimeMax = saved.pauseTimeMax / 60000;
-    const savedMinDelay = saved.minDelay / 1000;
-    const savedMaxDelay = saved.maxDelay / 1000;
-    // APP 端授权状态（根据本地刷新令牌判断）
+     面板展示单位换算：暂停时间毫秒→分钟，搜索延迟毫秒→秒
+    const savedPauseTimeMin = saved.pauseTimeMin  60000;
+    const savedPauseTimeMax = saved.pauseTimeMax  60000;
+    const savedMinDelay = saved.minDelay  1000;
+    const savedMaxDelay = saved.maxDelay  1000;
+     APP 端授权状态（根据本地刷新令牌判断）
     const appAuthRefreshToken = GM_getValue('appRefreshToken', '');
     const appAuthAgeText = AppAuth.issueAgeText();
     const appAuthStatusText = appAuthRefreshToken
-        ? `已授权${appAuthAgeText ? `（${appAuthAgeText}）` : ''}`
-        : '未授权';
+         `已授权${appAuthAgeText  `（${appAuthAgeText}）`  ''}`
+         '未授权';
 
-    // 版本号（从CONFIG获取）
+     版本号（从CONFIG获取）
     const currentVersion = CONFIG.version;
 
-    // 表单卡片与提示文案的统一样式串（设置页内数十处复用，避免逐字重复）
-    const cardStyle = `padding:20px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};`;
-    const hintStyle = `margin-top:10px;font-size:12px;color:${theme['--panel-text-muted']};line-height:1.7;display:flex;align-items:flex-start;gap:6px;`;
+     表单卡片与提示文案的统一样式串（设置页内数十处复用，避免逐字重复）
+    const cardStyle = `padding20px;background${theme['--panel-hover-bg']};border-radius14px;border1px solid ${theme['--panel-border']};`;
+    const hintStyle = `margin-top10px;font-size12px;color${theme['--panel-text-muted']};line-height1.7;displayflex;align-itemsflex-start;gap6px;`;
 
-    // 创建设置对话框
+     创建设置对话框
     const dialog = document.createElement('div');
     dialog.id = 'settings-dialog';
     dialog.innerHTML = `
-        <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:10001;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);animation:fadeIn 0.2s ease;">
-            <div class="dialog-container" style="background:${theme['--panel-bg']};border:1px solid ${theme['--panel-border']};border-radius:24px;padding:0;min-width:600px;max-width:1120px;width:94vw;max-height:90vh;overflow:hidden;box-shadow:0 25px 80px rgba(0,0,0,0.6),0 0 0 1px ${theme['--panel-border']}40;animation:dialogSlideIn 0.3s cubic-bezier(0.34,1.56,0.64,1);display:flex;flex-direction:column;">
-                <!-- 固定头部 -->
-                <div class="dialog-header" style="display:flex;justify-content:space-between;align-items:center;padding:20px 32px;flex-wrap:wrap;gap:16px;background:linear-gradient(135deg,${theme['--panel-bg']} 0%,${theme['--panel-hover-bg']} 100%);">
-                    <div style="display:flex;align-items:center;gap:12px;">
-                        <div class="dialog-header-icon" style="width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,${theme['--panel-primary-color']},${theme['--panel-primary-color']}cc);display:flex;align-items:center;justify-content:center;font-size:26px;box-shadow:0 4px 12px ${theme['--panel-primary-color']}40;">
+        div style=positionfixed;top0;left0;width100%;height100%;backgroundrgba(0,0,0,0.6);z-index10001;displayflex;align-itemscenter;justify-contentcenter;backdrop-filterblur(6px);animationfadeIn 0.2s ease;
+            div class=dialog-container style=background${theme['--panel-bg']};border1px solid ${theme['--panel-border']};border-radius24px;padding0;min-width600px;max-width1120px;width94vw;max-height90vh;overflowhidden;box-shadow0 25px 80px rgba(0,0,0,0.6),0 0 0 1px ${theme['--panel-border']}40;animationdialogSlideIn 0.3s cubic-bezier(0.34,1.56,0.64,1);displayflex;flex-directioncolumn;
+                !-- 固定头部 --
+                div class=dialog-header style=displayflex;justify-contentspace-between;align-itemscenter;padding20px 32px;flex-wrapwrap;gap16px;backgroundlinear-gradient(135deg,${theme['--panel-bg']} 0%,${theme['--panel-hover-bg']} 100%);
+                    div style=displayflex;align-itemscenter;gap12px;
+                        div class=dialog-header-icon style=width48px;height48px;border-radius14px;backgroundlinear-gradient(135deg,${theme['--panel-primary-color']},${theme['--panel-primary-color']}cc);displayflex;align-itemscenter;justify-contentcenter;font-size26px;box-shadow0 4px 12px ${theme['--panel-primary-color']}40;
                             🌐
-                        </div>
-                        <div>
-                            <h3 style="margin:0;font-size:24px;color:${theme['--panel-primary-color']};font-weight:800;letter-spacing:-0.5px;">
+                        div
+                        div
+                            h3 style=margin0;font-size24px;color${theme['--panel-primary-color']};font-weight800;letter-spacing-0.5px;
                                 Brian Tool
-                            </h3>
-                            <p style="margin:4px 0 0;font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">
+                            h3
+                            p style=margin4px 0 0;font-size12px;color${theme['--panel-text-muted']};font-weight500;
                                 v${currentVersion}
-                            </p>
-                        </div>
-                    </div>
-                    <div style="display:flex;align-items:center;gap:12px;">
-                        <!-- 搜索框 -->
-                        <div id="search-wrapper" style="position:relative;flex:1;max-width:280px;">
-                            <input type="text" id="settings-search-input"
-                                style="width:100%;box-sizing:border-box;padding:10px 14px 10px 40px;border:2px solid ${theme['--panel-border']};border-radius:10px;font-size:13px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:42px;"
-                                placeholder="搜索设置项...">
-                            <span id="search-icon" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:${theme['--panel-text-muted']};font-size:14px;">🔍</span>
-                            <button id="clear-search-btn" style="display:none;position:absolute;right:12px;top:50%;transform:translateY(-50%);color:${theme['--panel-text-muted']};font-size:14px;cursor:pointer;background:none;border:none;padding:2px;" title="清除搜索">✕</button>
-                        </div>
-                        <!-- 导航标签 -->
-                        <div class="nav-tabs" style="display:flex;gap:4px;background:${theme['--panel-bg']};padding:4px;border-radius:10px;border:1px solid ${theme['--panel-border']};">
-                            <button id="nav-settings-btn" class="nav-tab active" style="padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;color:#ffffff;background:${theme['--panel-primary-color']};border:none;cursor:pointer;transition:all 0.25s cubic-bezier(0.4,0,0.2,1);">
+                            p
+                        div
+                    div
+                    div style=displayflex;align-itemscenter;gap12px;
+                        !-- 搜索框 --
+                        div id=search-wrapper style=positionrelative;flex1;max-width280px;
+                            input type=text id=settings-search-input
+                                style=width100%;box-sizingborder-box;padding10px 14px 10px 40px;border2px solid ${theme['--panel-border']};border-radius10px;font-size13px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height42px;
+                                placeholder=搜索设置项...
+                            span id=search-icon style=positionabsolute;left12px;top50%;transformtranslateY(-50%);color${theme['--panel-text-muted']};font-size14px;🔍span
+                            button id=clear-search-btn style=displaynone;positionabsolute;right12px;top50%;transformtranslateY(-50%);color${theme['--panel-text-muted']};font-size14px;cursorpointer;backgroundnone;bordernone;padding2px; title=清除搜索✕button
+                        div
+                        !-- 导航标签 --
+                        div class=nav-tabs style=displayflex;gap4px;background${theme['--panel-bg']};padding4px;border-radius10px;border1px solid ${theme['--panel-border']};
+                            button id=nav-settings-btn class=nav-tab active style=padding10px 20px;border-radius8px;font-size13px;font-weight600;color#ffffff;background${theme['--panel-primary-color']};bordernone;cursorpointer;transitionall 0.25s cubic-bezier(0.4,0,0.2,1);
                                 ⚙️ 设置
-                            </button>
-                            <button id="nav-about-btn" class="nav-tab" style="padding:10px 20px;border-radius:8px;font-size:13px;font-weight:600;color:${theme['--panel-text-secondary']};background:transparent;border:none;cursor:pointer;transition:all 0.25s cubic-bezier(0.4,0,0.2,1);">
+                            button
+                            button id=nav-about-btn class=nav-tab style=padding10px 20px;border-radius8px;font-size13px;font-weight600;color${theme['--panel-text-secondary']};backgroundtransparent;bordernone;cursorpointer;transitionall 0.25s cubic-bezier(0.4,0,0.2,1);
                                 ℹ️ 关于
-                            </button>
-                        </div>
+                            button
+                        div
 
-                        <div id="settings-close-btn" class="dialog-close-btn" style="cursor:pointer;font-size:20px;color:${theme['--panel-text-secondary']};width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:12px;transition:all 0.25s cubic-bezier(0.4,0,0.2,1);background:transparent;user-select:none;" title="关闭设置">
+                        div id=settings-close-btn class=dialog-close-btn style=cursorpointer;font-size20px;color${theme['--panel-text-secondary']};width40px;height40px;displayflex;align-itemscenter;justify-contentcenter;border-radius12px;transitionall 0.25s cubic-bezier(0.4,0,0.2,1);backgroundtransparent;user-selectnone; title=关闭设置
                             ✕
-                        </div>
-                    </div>
-                </div>
+                        div
+                    div
+                div
 
-                <!-- 可滚动内容区 -->
-                <div class="dialog-content" style="padding:24px 32px;overflow-y:auto;flex:1;">
-                    <!-- 基础配置 -->
-                    <div class="config-section" style="margin-bottom:24px;" data-section="基础配置">
-                        <div class="section-header" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid ${theme['--panel-primary-color']}20;cursor:pointer;" title="点击展开/收起">
-                            <div class="section-icon" style="width:36px;height:36px;border-radius:10px;background:${theme['--panel-info-bg']};display:flex;align-items:center;justify-content:center;font-size:18px;">
+                !-- 可滚动内容区 --
+                div class=dialog-content style=padding24px 32px;overflow-yauto;flex1;
+                    !-- 搜索范围与地区 --
+                    div class=config-section style=margin-bottom24px; data-section=搜索范围与地区
+                        div class=section-header style=displayflex;align-itemscenter;gap10px;margin-bottom16px;padding-bottom10px;border-bottom2px solid ${theme['--panel-primary-color']}20;cursorpointer; title=点击展开收起
+                            div class=section-icon style=width36px;height36px;border-radius10px;background${theme['--panel-info-bg']};displayflex;align-itemscenter;justify-contentcenter;font-size18px;
                                 🔧
-                            </div>
-                            <div style="flex:1;">
-                                <h4 class="section-title" style="margin:0;font-size:16px;color:${theme['--panel-primary-color']};font-weight:700;letter-spacing:-0.3px;">
-                                    基础配置
-                                </h4>
-                                <p class="section-desc" style="margin:2px 0 0;font-size:11px;color:${theme['--panel-text-muted']};font-weight:500;">
-                                    设置脚本运行的基本参数
-                                </p>
-                            </div>
-                            <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
-                        </div>
-                        <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="form-card" style="${cardStyle}" data-search-tags="搜索表单参数 form参数">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">🔍</span>
+                            div
+                            div style=flex1;
+                                h4 class=section-title style=margin0;font-size16px;color${theme['--panel-primary-color']};font-weight700;letter-spacing-0.3px;
+                                    搜索范围与地区
+                                h4
+                                p class=section-desc style=margin2px 0 0;font-size11px;color${theme['--panel-text-muted']};font-weight500;
+                                    设置本轮次数范围、搜索表单参数与执行地区
+                                p
+                            div
+                            span class=section-toggle style=font-size14px;color${theme['--panel-text-muted']};transitiontransform 0.3s cubic-bezier(0.4,0,0.2,1);▼span
+                        div
+                        div class=section-content style=overflowhidden;max-height1000px;transitionmax-height 0.3s ease, opacity 0.3s ease;
+                        div class=form-card style=${cardStyle} data-search-tags=搜索表单参数 form参数
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom12px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;🔍span
                                 搜索表单参数
-                                <span style="color:#f44336;">*</span>
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="登录必应后手动搜索几次，从地址栏获取form=xxx参数值">❓</span>
-                            </label>
-                            <input type="text" id="search-form-param-input" class="form-input" value="${utils.escapeHtml(saved.searchFormParam)}"
-                                style="width:100%;box-sizing:border-box;padding:14px 16px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:48px;font-weight:500;letter-spacing:0.5px;"
-                                placeholder="例如: QBLH">
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>登录必应后手动搜索几次，从地址栏获取 <code style="background:${theme['--panel-bg']};padding:3px 8px;border-radius:6px;font-family:'Courier New',monospace;font-size:11px;font-weight:600;border:1px solid ${theme['--panel-border']};">form=xxx</code> 参数值</span>
-                            </div>
-                        </div>
+                                span style=color#f44336;span
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=登录必应后手动搜索几次，从地址栏获取form=xxx参数值❓span
+                            label
+                            input type=text id=search-form-param-input class=form-input value=${utils.escapeHtml(saved.searchFormParam)}
+                                style=width100%;box-sizingborder-box;padding14px 16px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height48px;font-weight500;letter-spacing0.5px;
+                                placeholder=例如 QBLH
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;💡span
+                                span登录必应后手动搜索几次，从地址栏获取 code style=background${theme['--panel-bg']};padding3px 8px;border-radius6px;font-family'Courier New',monospace;font-size11px;font-weight600;border1px solid ${theme['--panel-border']};form=xxxcode 参数值span
+                            div
+                        div
 
-                        <div class="form-card" style="${cardStyle}" data-search-tags="每日最大搜索次数 搜索次数">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">📊</span>
-                                每日最大搜索次数
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="设置每日执行的最大搜索次数，建议10-20次">❓</span>
-                            </label>
-                            <input type="number" id="max-searches-input" class="form-input" value="${saved.maxSearches}" min="1" max="50"
-                                style="width:100%;box-sizing:border-box;padding:14px 16px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:48px;font-weight:500;"
-                                placeholder="建议 10-20 次">
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">⚠️</span>
-                                <span>建议 <strong style="color:${theme['--panel-warning-text']};">10-20 次</strong>，过高易触发风控</span>
-                            </div>
-                        </div>
+                        div class=form-card style=${cardStyle} data-search-tags=每日搜索次数 最小 最大 搜索次数 随机范围
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom12px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;📊span
+                                每日搜索次数
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=每次任务会在最小值与最大值之间随机确定总次数，建议 15-20 次❓span
+                            label
+                            div style=displayflex;align-itemscenter;gap10px;
+                                label style=flex1;font-size12px;color${theme['--panel-text-secondary']};font-weight600;最小值
+                                    input type=number id=min-searches-input class=form-input value=${saved.minSearches} min=1 max=50
+                                        style=width100%;box-sizingborder-box;margin-top6px;padding12px 14px;border2px solid ${theme['--panel-border']};border-radius10px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};height44px;font-weight500; placeholder=15
+                                label
+                                span style=margin-top20px;color${theme['--panel-text-muted']};font-weight700;—span
+                                label style=flex1;font-size12px;color${theme['--panel-text-secondary']};font-weight600;最大值
+                                    input type=number id=max-searches-input class=form-input value=${saved.maxSearches} min=1 max=50
+                                        style=width100%;box-sizingborder-box;margin-top6px;padding12px 14px;border2px solid ${theme['--panel-border']};border-radius10px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};height44px;font-weight500; placeholder=20
+                                label
+                            div
+                            div class=form-hint style=${hintStyle}span style=flex-shrink0;💡spanspan建议 15–20 次；最小值不得大于最大值。spandiv
+                        div
 
-                        <div class="form-card" style="${cardStyle}" data-search-tags="面板默认显示状态 面板状态">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">📱</span>
+                        div class=form-card style=${cardStyle} data-search-tags=执行地区 搜索地区 语言 热词
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom12px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;🌍span执行地区
+                            label
+                            select id=execution-region-select class=form-input style=width100%;box-sizingborder-box;padding12px 16px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};height48px;
+                                ${Object.entries(EXECUTION_REGIONS).map(([key, region]) = `option value=${key}${key === saved.executionRegion  ' selected'  ''}${region.label}option`).join('')}
+                            select
+                            div class=form-hint style=${hintStyle}span style=flex-shrink0;💡spanspan切换后会使用对应的 Bing 站点、界面语言与热词来源。spandiv
+                        div
+
+                        div class=form-card style=${cardStyle} data-search-tags=面板默认显示状态 面板状态
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom14px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;📱span
                                 面板默认显示状态
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="选择脚本加载时面板的默认显示状态">❓</span>
-                            </label>
-                            <div class="radio-cards" style="display:flex;gap:12px;">
-                                <label class="radio-card" style="flex:1;display:flex;align-items:center;gap:12px;padding:16px;border:2px solid ${!saved.panelDefaultCollapsed ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:12px;background:${!saved.panelDefaultCollapsed ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',' + theme['--panel-hover-bg'] + ')' : theme['--panel-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;overflow:hidden;">
-                                    <input type="radio" name="panel-default-state" value="expanded" ${!saved.panelDefaultCollapsed ? 'checked' : ''}
-                                        style="width:20px;height:20px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                    <div style="flex:1;">
-                                        <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:2px;">✨ 展开状态</div>
-                                        <div style="font-size:11px;color:${theme['--panel-text-muted']};">显示完整面板信息</div>
-                                    </div>
-                                </label>
-                                <label class="radio-card" style="flex:1;display:flex;align-items:center;gap:12px;padding:16px;border:2px solid ${saved.panelDefaultCollapsed ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:12px;background:${saved.panelDefaultCollapsed ? 'linear-gradient(135deg,' + theme['--panel-info-bg'] + ',' + theme['--panel-hover-bg'] + ')' : theme['--panel-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;overflow:hidden;">
-                                    <input type="radio" name="panel-default-state" value="collapsed" ${saved.panelDefaultCollapsed ? 'checked' : ''}
-                                        style="width:20px;height:20px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                    <div style="flex:1;">
-                                        <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:2px;">🔽 收缩状态</div>
-                                        <div style="font-size:11px;color:${theme['--panel-text-muted']};">仅显示标题栏</div>
-                                    </div>
-                                </label>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>脚本加载时的默认显示状态，可随时手动切换</span>
-                            </div>
-                        </div>
-                        </div>
-                    </div>
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=选择脚本加载时面板的默认显示状态❓span
+                            label
+                            div class=radio-cards style=displayflex;gap12px;
+                                label class=radio-card style=flex1;displayflex;align-itemscenter;gap12px;padding16px;border2px solid ${!saved.panelDefaultCollapsed  theme['--panel-primary-color']  theme['--panel-border']};border-radius12px;background${!saved.panelDefaultCollapsed  'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',' + theme['--panel-hover-bg'] + ')'  theme['--panel-bg']};cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);positionrelative;overflowhidden;
+                                    input type=radio name=panel-default-state value=expanded ${!saved.panelDefaultCollapsed  'checked'  ''}
+                                        style=width20px;height20px;accent-color${theme['--panel-primary-color']};cursorpointer;flex-shrink0;
+                                    div style=flex1;
+                                        div style=font-size14px;color${theme['--panel-text-primary']};font-weight600;margin-bottom2px;✨ 展开状态div
+                                        div style=font-size11px;color${theme['--panel-text-muted']};显示完整面板信息div
+                                    div
+                                label
+                                label class=radio-card style=flex1;displayflex;align-itemscenter;gap12px;padding16px;border2px solid ${saved.panelDefaultCollapsed  theme['--panel-primary-color']  theme['--panel-border']};border-radius12px;background${saved.panelDefaultCollapsed  'linear-gradient(135deg,' + theme['--panel-info-bg'] + ',' + theme['--panel-hover-bg'] + ')'  theme['--panel-bg']};cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);positionrelative;overflowhidden;
+                                    input type=radio name=panel-default-state value=collapsed ${saved.panelDefaultCollapsed  'checked'  ''}
+                                        style=width20px;height20px;accent-color${theme['--panel-primary-color']};cursorpointer;flex-shrink0;
+                                    div style=flex1;
+                                        div style=font-size14px;color${theme['--panel-text-primary']};font-weight600;margin-bottom2px;🔽 收缩状态div
+                                        div style=font-size11px;color${theme['--panel-text-muted']};仅显示标题栏div
+                                    div
+                                label
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;💡span
+                                span脚本加载时的默认显示状态，可随时手动切换span
+                            div
+                        div
+                        div
+                    div
 
-                    <!-- 搜索行为配置 -->
-                    <div class="config-section" style="margin-bottom:24px;" data-section="搜索行为优化">
-                        <div class="section-header" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid ${theme['--panel-primary-color']}20;cursor:pointer;" title="点击展开/收起">
-                            <div class="section-icon" style="width:36px;height:36px;border-radius:10px;background:${theme['--panel-success-bg']};display:flex;align-items:center;justify-content:center;font-size:18px;">
+                    !-- 搜索内容与交互 --
+                    div class=config-section style=margin-bottom24px; data-section=搜索内容与交互
+                        div class=section-header style=displayflex;align-itemscenter;gap10px;margin-bottom16px;padding-bottom10px;border-bottom2px solid ${theme['--panel-primary-color']}20;cursorpointer; title=点击展开收起
+                            div class=section-icon style=width36px;height36px;border-radius10px;background${theme['--panel-success-bg']};displayflex;align-itemscenter;justify-contentcenter;font-size18px;
                                 🎲
-                            </div>
-                            <div style="flex:1;">
-                                <h4 class="section-title" style="margin:0;font-size:16px;color:${theme['--panel-primary-color']};font-weight:700;letter-spacing:-0.3px;">
-                                    搜索行为优化
-                                </h4>
-                                <p class="section-desc" style="margin:2px 0 0;font-size:11px;color:${theme['--panel-text-muted']};font-weight:500;">
-                                    模拟真实用户搜索习惯，降低检测风险
-                                </p>
-                            </div>
-                            <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
-                        </div>
-                        <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="checkbox-cards" style="display:flex;gap:14px;">
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.randomAddSearchWords ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.randomAddSearchWords ? 'linear-gradient(135deg,' + theme['--panel-info-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="随机加词功能 加词">
-                                ${saved.randomAddSearchWords ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="random-add-checkbox" ${saved.randomAddSearchWords ? 'checked' : ''}
-                                    style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                <div style="flex:1;">
-                                    <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                                        <span style="font-size:16px;">🔤</span>
+                            div
+                            div style=flex1;
+                                h4 class=section-title style=margin0;font-size16px;color${theme['--panel-primary-color']};font-weight700;letter-spacing-0.3px;
+                                    搜索内容与交互
+                                h4
+                                p class=section-desc style=margin2px 0 0;font-size11px;color${theme['--panel-text-muted']};font-weight500;
+                                    管理关键词处理方式与搜索结果交互
+                                p
+                            div
+                            span class=section-toggle style=font-size14px;color${theme['--panel-text-muted']};transitiontransform 0.3s cubic-bezier(0.4,0,0.2,1);▼span
+                        div
+                        div class=section-content style=overflowhidden;max-height1000px;transitionmax-height 0.3s ease, opacity 0.3s ease;
+                        div class=checkbox-cards style=displayflex;gap14px;
+                            label class=checkbox-card style=flex1;displayflex;align-itemsflex-start;gap12px;padding18px;border2px solid ${saved.randomAddSearchWords  theme['--panel-primary-color']  theme['--panel-border']};border-radius14px;background${saved.randomAddSearchWords  'linear-gradient(135deg,' + theme['--panel-info-bg'] + ',transparent)'  theme['--panel-hover-bg']};cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);positionrelative; data-search-tags=随机加词功能 加词
+                                ${saved.randomAddSearchWords  'div class=badge style=positionabsolute;top10px;right10px;padding3px 8px;border-radius6px;background' + theme['--panel-primary-color'] + ';color#fff;font-size10px;font-weight700;已启用div'  ''}
+                                input type=checkbox id=random-add-checkbox ${saved.randomAddSearchWords  'checked'  ''}
+                                    style=width20px;height20px;margin-top2px;accent-color${theme['--panel-primary-color']};cursorpointer;flex-shrink0;
+                                div style=flex1;
+                                    div style=font-size14px;color${theme['--panel-text-primary']};font-weight600;margin-bottom6px;displayflex;align-itemscenter;gap6px;
+                                        span style=font-size16px;🔤span
                                         随机加词功能
-                                    </div>
-                                    <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.6;background:${theme['--panel-bg']};padding:8px 10px;border-radius:8px;border:1px solid ${theme['--panel-border']};font-family:'Courier New',monospace;">
+                                    div
+                                    div style=font-size12px;color${theme['--panel-text-muted']};line-height1.6;background${theme['--panel-bg']};padding8px 10px;border-radius8px;border1px solid ${theme['--panel-border']};font-family'Courier New',monospace;
                                         人工智能发展 → 人工1智能发z展
-                                    </div>
-                                </div>
-                            </label>
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.randomCutSearchWords ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.randomCutSearchWords ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="随机截词功能 截词" data-accent="success">
-                                ${saved.randomCutSearchWords ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="random-cut-checkbox" ${saved.randomCutSearchWords ? 'checked' : ''}
-                                    style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                <div style="flex:1;">
-                                    <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                                        <span style="font-size:16px;">✂️</span>
+                                    div
+                                div
+                            label
+                            label class=checkbox-card style=flex1;displayflex;align-itemsflex-start;gap12px;padding18px;border2px solid ${saved.randomCutSearchWords  theme['--panel-primary-color']  theme['--panel-border']};border-radius14px;background${saved.randomCutSearchWords  'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)'  theme['--panel-hover-bg']};cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);positionrelative; data-search-tags=随机截词功能 截词 data-accent=success
+                                ${saved.randomCutSearchWords  'div class=badge style=positionabsolute;top10px;right10px;padding3px 8px;border-radius6px;background' + theme['--panel-primary-color'] + ';color#fff;font-size10px;font-weight700;已启用div'  ''}
+                                input type=checkbox id=random-cut-checkbox ${saved.randomCutSearchWords  'checked'  ''}
+                                    style=width20px;height20px;margin-top2px;accent-color${theme['--panel-primary-color']};cursorpointer;flex-shrink0;
+                                div style=flex1;
+                                    div style=font-size14px;color${theme['--panel-text-primary']};font-weight600;margin-bottom6px;displayflex;align-itemscenter;gap6px;
+                                        span style=font-size16px;✂️span
                                         随机截词功能
-                                    </div>
-                                    <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.6;background:${theme['--panel-bg']};padding:8px 10px;border-radius:8px;border:1px solid ${theme['--panel-border']};font-family:'Courier New',monospace;">
+                                    div
+                                    div style=font-size12px;color${theme['--panel-text-muted']};line-height1.6;background${theme['--panel-bg']};padding8px 10px;border-radius8px;border1px solid ${theme['--panel-border']};font-family'Courier New',monospace;
                                         人工1智能发展 → 人工1智
-                                    </div>
-                                </div>
-                            </label>
-                        </div>
+                                    div
+                                div
+                            label
+                        div
 
-                        <div class="factor-inputs" style="display:flex;gap:14px;margin-bottom:14px;">
-                            <div class="factor-input-card" style="flex:1;padding:18px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="加词触发概率">
-                                <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:${theme['--panel-text-primary']};font-weight:600;">
+                        div class=factor-inputs style=displayflex;gap14px;margin-bottom14px;
+                            div class=factor-input-card style=flex1;padding18px;background${theme['--panel-hover-bg']};border-radius14px;border1px solid ${theme['--panel-border']}; data-search-tags=加词触发概率
+                                label style=displayflex;align-itemscenter;gap8px;margin-bottom10px;font-size13px;color${theme['--panel-text-primary']};font-weight600;
                                     加词触发概率
-                                    <span class="help-icon" style="font-size:12px;color:${theme['--panel-text-muted']};cursor:help;" title="控制加词功能的触发概率，0-1之间，值越高触发概率越大">❓</span>
-                                </label>
-                                <input type="number" id="random-add-factor-input" class="form-input" value="${saved.randomAddSearchWordsFactor}" min="0" max="1" step="0.1"
-                                    style="width:100%;box-sizing:border-box;padding:12px 14px;border:2px solid ${theme['--panel-border']};border-radius:10px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:46px;font-weight:600;">
-                                <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
-                                    <span style="font-size:11px;color:${theme['--panel-text-muted']};">范围：0-1</span>
-                                    <span style="font-size:11px;color:${theme['--panel-primary-color']};font-weight:600;background:${theme['--panel-info-bg']};padding:3px 8px;border-radius:6px;">默认 0.3 (30%)</span>
-                                </div>
-                            </div>
-                            <div class="factor-input-card" style="flex:1;padding:18px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="截词触发概率">
-                                <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:${theme['--panel-text-primary']};font-weight:600;">
+                                    span class=help-icon style=font-size12px;color${theme['--panel-text-muted']};cursorhelp; title=控制加词功能的触发概率，0-1之间，值越高触发概率越大❓span
+                                label
+                                input type=number id=random-add-factor-input class=form-input value=${saved.randomAddSearchWordsFactor} min=0 max=1 step=0.1
+                                    style=width100%;box-sizingborder-box;padding12px 14px;border2px solid ${theme['--panel-border']};border-radius10px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height46px;font-weight600;
+                                div style=margin-top8px;displayflex;justify-contentspace-between;align-itemscenter;
+                                    span style=font-size11px;color${theme['--panel-text-muted']};范围：0-1span
+                                    span style=font-size11px;color${theme['--panel-primary-color']};font-weight600;background${theme['--panel-info-bg']};padding3px 8px;border-radius6px;默认 0.3 (30%)span
+                                div
+                            div
+                            div class=factor-input-card style=flex1;padding18px;background${theme['--panel-hover-bg']};border-radius14px;border1px solid ${theme['--panel-border']}; data-search-tags=截词触发概率
+                                label style=displayflex;align-itemscenter;gap8px;margin-bottom10px;font-size13px;color${theme['--panel-text-primary']};font-weight600;
                                     截词触发概率
-                                    <span class="help-icon" style="font-size:12px;color:${theme['--panel-text-muted']};cursor:help;" title="控制截词功能的触发概率，0-1之间，值越高触发概率越大">❓</span>
-                                </label>
-                                <input type="number" id="random-cut-factor-input" class="form-input" value="${saved.randomCutSearchWordsFactor}" min="0" max="1" step="0.1"
-                                    style="width:100%;box-sizing:border-box;padding:12px 14px;border:2px solid ${theme['--panel-border']};border-radius:10px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:46px;font-weight:600;">
-                                <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
-                                    <span style="font-size:11px;color:${theme['--panel-text-muted']};">范围：0-1</span>
-                                    <span style="font-size:11px;color:${theme['--panel-primary-color']};font-weight:600;background:${theme['--panel-info-bg']};padding:3px 8px;border-radius:6px;">默认 0.2 (20%)</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-hint" style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;padding:14px 16px;background:linear-gradient(135deg,${theme['--panel-warning-bg']},${theme['--panel-hover-bg']});border-radius:10px;display:flex;align-items:flex-start;gap:8px;border-left:3px solid ${theme['--panel-warning-border']};">
-                            <span style="flex-shrink:0;font-size:16px;">💡</span>
-                            <div>
-                                <strong style="color:${theme['--panel-text-primary']};">使用建议：</strong>开启后可混淆搜索输入行为，因子越大触发概率越高；建议保持默认值。
-                            </div>
-                        </div>
-                        <div class="checkbox-cards">
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.clickSearchResults ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.clickSearchResults ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="点击搜索结果链接" data-accent="success">
-                                ${saved.clickSearchResults ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="click-search-results-checkbox" ${saved.clickSearchResults ? 'checked' : ''}
-                                    style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                <div style="flex:1;">
-                                    <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                                        <span style="font-size:16px;">🔗</span>
+                                    span class=help-icon style=font-size12px;color${theme['--panel-text-muted']};cursorhelp; title=控制截词功能的触发概率，0-1之间，值越高触发概率越大❓span
+                                label
+                                input type=number id=random-cut-factor-input class=form-input value=${saved.randomCutSearchWordsFactor} min=0 max=1 step=0.1
+                                    style=width100%;box-sizingborder-box;padding12px 14px;border2px solid ${theme['--panel-border']};border-radius10px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height46px;font-weight600;
+                                div style=margin-top8px;displayflex;justify-contentspace-between;align-itemscenter;
+                                    span style=font-size11px;color${theme['--panel-text-muted']};范围：0-1span
+                                    span style=font-size11px;color${theme['--panel-primary-color']};font-weight600;background${theme['--panel-info-bg']};padding3px 8px;border-radius6px;默认 0.2 (20%)span
+                                div
+                            div
+                        div
+                        div class=form-hint style=font-size12px;color${theme['--panel-text-muted']};line-height1.8;padding14px 16px;backgroundlinear-gradient(135deg,${theme['--panel-warning-bg']},${theme['--panel-hover-bg']});border-radius10px;displayflex;align-itemsflex-start;gap8px;border-left3px solid ${theme['--panel-warning-border']};
+                            span style=flex-shrink0;font-size16px;💡span
+                            div
+                                strong style=color${theme['--panel-text-primary']};使用建议：strong开启后可混淆搜索输入行为，因子越大触发概率越高；建议保持默认值。
+                            div
+                        div
+                        div class=checkbox-cards
+                            label class=checkbox-card style=flex1;displayflex;align-itemsflex-start;gap12px;padding18px;border2px solid ${saved.clickSearchResults  theme['--panel-primary-color']  theme['--panel-border']};border-radius14px;background${saved.clickSearchResults  'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)'  theme['--panel-hover-bg']};cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);positionrelative; data-search-tags=点击搜索结果链接 data-accent=success
+                                ${saved.clickSearchResults  'div class=badge style=positionabsolute;top10px;right10px;padding3px 8px;border-radius6px;background' + theme['--panel-primary-color'] + ';color#fff;font-size10px;font-weight700;已启用div'  ''}
+                                input type=checkbox id=click-search-results-checkbox ${saved.clickSearchResults  'checked'  ''}
+                                    style=width20px;height20px;margin-top2px;accent-color${theme['--panel-primary-color']};cursorpointer;flex-shrink0;
+                                div style=flex1;
+                                    div style=font-size14px;color${theme['--panel-text-primary']};font-weight600;margin-bottom6px;displayflex;align-itemscenter;gap6px;
+                                        span style=font-size16px;🔗span
                                         点击搜索结果链接
-                                    </div>
-                                    <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;background:${theme['--panel-bg']};padding:12px 14px;border-radius:8px;border:1px solid ${theme['--panel-border']};">
-                                        <div style="margin-bottom:8px;">搜索完成后随机点击一个结果链接，模拟真实用户行为。</div>
-                                        <div style="color:${theme['--panel-warning-color']};font-weight:500;padding:6px 8px;background:${theme['--panel-warning-bg']};border-radius:6px;border-left:3px solid ${theme['--panel-warning-color']};">
+                                    div
+                                    div style=font-size12px;color${theme['--panel-text-muted']};line-height1.8;background${theme['--panel-bg']};padding12px 14px;border-radius8px;border1px solid ${theme['--panel-border']};
+                                        div style=margin-bottom8px;搜索完成后随机点击一个结果链接，模拟真实用户行为。div
+                                        div style=color${theme['--panel-warning-color']};font-weight500;padding6px 8px;background${theme['--panel-warning-bg']};border-radius6px;border-left3px solid ${theme['--panel-warning-color']};
                                             ⚠️ 注意：首次运行请允许弹出窗口。
-                                        </div>
-                                    </div>
-                                </div>
-                            </label>
-                        </div>
-                        </div>
-                    </div>
+                                        div
+                                    div
+                                div
+                            label
+                        div
+                        div
+                    div
 
-                    <!-- 暂停配置 -->
-                    <div class="config-section" style="margin-bottom:24px;" data-section="智能暂停策略">
-                        <div class="section-header" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid ${theme['--panel-primary-color']}20;cursor:pointer;" title="点击展开/收起">
-                            <div class="section-icon" style="width:36px;height:36px;border-radius:10px;background:${theme['--panel-warning-bg']};display:flex;align-items:center;justify-content:center;font-size:18px;">
+                    !-- 搜索节奏 --
+                    div class=config-section style=margin-bottom24px; data-section=搜索节奏
+                        div class=section-header style=displayflex;align-itemscenter;gap10px;margin-bottom16px;padding-bottom10px;border-bottom2px solid ${theme['--panel-primary-color']}20;cursorpointer; title=点击展开收起
+                            div class=section-icon style=width36px;height36px;border-radius10px;background${theme['--panel-warning-bg']};displayflex;align-itemscenter;justify-contentcenter;font-size18px;
                                 ⏸️
-                            </div>
-                            <div style="flex:1;">
-                                <h4 class="section-title" style="margin:0;font-size:16px;color:${theme['--panel-primary-color']};font-weight:700;letter-spacing:-0.3px;">
-                                    智能暂停策略
-                                </h4>
-                                <p class="section-desc" style="margin:2px 0 0;font-size:11px;color:${theme['--panel-text-muted']};font-weight:500;">
-                                    模拟人类休息节奏，大幅降低检测风险
-                                </p>
-                            </div>
-                            <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
-                        </div>
-                        <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="form-card" style="${cardStyle}" data-search-tags="暂停间隔设置">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">🔄</span>
+                            div
+                            div style=flex1;
+                                h4 class=section-title style=margin0;font-size16px;color${theme['--panel-primary-color']};font-weight700;letter-spacing-0.3px;
+                                    搜索节奏
+                                h4
+                                p class=section-desc style=margin2px 0 0;font-size11px;color${theme['--panel-text-muted']};font-weight500;
+                                    集中设置搜索间隔、暂停频率与暂停时长
+                                p
+                            div
+                            span class=section-toggle style=font-size14px;color${theme['--panel-text-muted']};transitiontransform 0.3s cubic-bezier(0.4,0,0.2,1);▼span
+                        div
+                        div class=section-content style=overflowhidden;max-height1000px;transitionmax-height 0.3s ease, opacity 0.3s ease;
+                        div class=form-card style=${cardStyle} data-search-tags=暂停间隔设置
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom14px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;🔄span
                                 暂停间隔设置
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="设置每执行多少次搜索后暂停一次">❓</span>
-                            </label>
-                            <div class="interval-inputs" style="display:flex;gap:12px;align-items:center;">
-                                <div class="interval-input-card" style="flex:1;position:relative;">
-                                    <input type="number" id="pause-interval-min-input" class="form-input" value="${saved.pauseIntervalMin}" min="1" max="20"
-                                        style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:50px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                    <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">次</span>
-                                </div>
-                                <span style="color:${theme['--panel-text-muted']};font-size:14px;font-weight:600;padding:0 4px;">至</span>
-                                <div class="interval-input-card" style="flex:1;position:relative;">
-                                    <input type="number" id="pause-interval-max-input" class="form-input" value="${saved.pauseIntervalMax}" min="1" max="20"
-                                        style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:50px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                    <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">次</span>
-                                </div>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">📝</span>
-                                <span>默认每 <strong style="color:${theme['--panel-primary-color']};">2-3 次</strong>搜索随机暂停一次，模拟人类节奏</span>
-                            </div>
-                        </div>
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=设置每执行多少次搜索后暂停一次❓span
+                            label
+                            div class=interval-inputs style=displayflex;gap12px;align-itemscenter;
+                                div class=interval-input-card style=flex1;positionrelative;
+                                    input type=number id=pause-interval-min-input class=form-input value=${saved.pauseIntervalMin} min=1 max=20
+                                        style=width100%;box-sizingborder-box;padding14px 16px;padding-right50px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                    span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;次span
+                                div
+                                span style=color${theme['--panel-text-muted']};font-size14px;font-weight600;padding0 4px;至span
+                                div class=interval-input-card style=flex1;positionrelative;
+                                    input type=number id=pause-interval-max-input class=form-input value=${saved.pauseIntervalMax} min=1 max=20
+                                        style=width100%;box-sizingborder-box;padding14px 16px;padding-right50px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                    span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;次span
+                                div
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;📝span
+                                span默认每 strong style=color${theme['--panel-primary-color']};2-3 次strong搜索随机暂停一次，模拟人类节奏span
+                            div
+                        div
 
-                        <div class="form-card" style="${cardStyle}" data-search-tags="暂停时长设置">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">⏱️</span>
+                        div class=form-card style=${cardStyle} data-search-tags=暂停时长设置
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom14px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;⏱️span
                                 暂停时长设置
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="设置每次暂停的持续时间">❓</span>
-                            </label>
-                            <div class="interval-inputs" style="display:flex;gap:12px;align-items:center;">
-                                <div class="interval-input-card" style="flex:1;position:relative;">
-                                    <input type="number" id="pause-time-min-input" class="form-input" value="${savedPauseTimeMin}" min="1" max="60" step="1"
-                                        style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:65px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                    <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">分钟</span>
-                                </div>
-                                <span style="color:${theme['--panel-text-muted']};font-size:14px;font-weight:600;padding:0 4px;">至</span>
-                                <div class="interval-input-card" style="flex:1;position:relative;">
-                                    <input type="number" id="pause-time-max-input" class="form-input" value="${savedPauseTimeMax}" min="1" max="120" step="1"
-                                        style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:65px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                    <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">分钟</span>
-                                </div>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">⚠️</span>
-                                <span>建议 <strong style="color:${theme['--panel-warning-text']};">20-30 分钟</strong>，模拟休息节奏、降低账号风险</span>
-                            </div>
-                        </div>
-                        </div>
-                    </div>
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=设置每次暂停的持续时间❓span
+                            label
+                            div class=interval-inputs style=displayflex;gap12px;align-itemscenter;
+                                div class=interval-input-card style=flex1;positionrelative;
+                                    input type=number id=pause-time-min-input class=form-input value=${savedPauseTimeMin} min=1 max=60 step=1
+                                        style=width100%;box-sizingborder-box;padding14px 16px;padding-right65px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                    span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;分钟span
+                                div
+                                span style=color${theme['--panel-text-muted']};font-size14px;font-weight600;padding0 4px;至span
+                                div class=interval-input-card style=flex1;positionrelative;
+                                    input type=number id=pause-time-max-input class=form-input value=${savedPauseTimeMax} min=1 max=120 step=1
+                                        style=width100%;box-sizingborder-box;padding14px 16px;padding-right65px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                    span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;分钟span
+                                div
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;⚠️span
+                                span建议 strong style=color${theme['--panel-warning-text']};20-30 分钟strong，模拟休息节奏、降低账号风险span
+                            div
+                        div
+                        div
+                    div
 
-                    <!-- 延迟配置 -->
-                    <div class="config-section" style="margin-bottom:24px;" data-section="搜索延迟控制">
-                        <div class="section-header" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid ${theme['--panel-primary-color']}20;cursor:pointer;" title="点击展开/收起">
-                            <div class="section-icon" style="width:36px;height:36px;border-radius:10px;background:${theme['--panel-info-bg']};display:flex;align-items:center;justify-content:center;font-size:18px;">
-                                ⏱️
-                            </div>
-                            <div style="flex:1;">
-                                <h4 class="section-title" style="margin:0;font-size:16px;color:${theme['--panel-primary-color']};font-weight:700;letter-spacing:-0.3px;">
-                                    搜索延迟控制
-                                </h4>
-                                <p class="section-desc" style="margin:2px 0 0;font-size:11px;color:${theme['--panel-text-muted']};font-weight:500;">
-                                    控制搜索间隔时间，避免过于频繁
-                                </p>
-                            </div>
-                            <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
-                        </div>
-                        <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="form-card" style="${cardStyle}" data-search-tags="搜索间隔时间">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">⏳</span>
+                    !-- 搜索节奏：间隔时间子分组，保持独立折叠容器以避免布局错位。 --
+                    div class=config-section style=margin-bottom24px; data-section=搜索间隔时间
+                        div class=section-header style=displayflex;align-itemscenter;gap10px;margin-bottom16px;padding-bottom10px;border-bottom2px solid ${theme['--panel-primary-color']}20;cursorpointer; title=点击展开收起
+                            div class=section-icon style=width36px;height36px;border-radius10px;background${theme['--panel-info-bg']};displayflex;align-itemscenter;justify-contentcenter;font-size18px;⏱️div
+                            div style=flex1;
+                                h4 class=section-title style=margin0;font-size16px;color${theme['--panel-primary-color']};font-weight700;letter-spacing-0.3px;搜索节奏 · 间隔时间h4
+                                p class=section-desc style=margin2px 0 0;font-size11px;color${theme['--panel-text-muted']};font-weight500;与暂停频率、暂停时长相邻设置，控制搜索节奏p
+                            div
+                            span class=section-toggle style=font-size14px;color${theme['--panel-text-muted']};transitiontransform 0.3s cubic-bezier(0.4,0,0.2,1);▼span
+                        div
+                        div class=section-content style=overflowhidden;max-height1000px;transitionmax-height 0.3s ease, opacity 0.3s ease;
+                        div class=form-card style=${cardStyle} data-search-tags=搜索间隔时间
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom14px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;⏳span
                                 两次搜索之间的间隔时间
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="设置两次搜索之间的随机延迟时间范围">❓</span>
-                            </label>
-                            <div class="delay-inputs" style="display:flex;gap:12px;align-items:center;">
-                                <div class="interval-input-card" style="flex:1;position:relative;">
-                                    <input type="number" id="min-delay-input" class="form-input" value="${savedMinDelay}" min="5" max="60" step="1"
-                                        style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:45px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                    <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">秒</span>
-                                </div>
-                                <span style="color:${theme['--panel-text-muted']};font-size:14px;font-weight:600;padding:0 4px;">至</span>
-                                <div class="interval-input-card" style="flex:1;position:relative;">
-                                    <input type="number" id="max-delay-input" class="form-input" value="${savedMaxDelay}" min="10" max="120" step="1"
-                                        style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:45px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                    <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">秒</span>
-                                </div>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>建议 <strong style="color:${theme['--panel-primary-color']};">15-30 秒</strong>，贴近真人浏览节奏</span>
-                            </div>
-                        </div>
-                        </div>
-                    </div>
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=设置两次搜索之间的随机延迟时间范围❓span
+                            label
+                            div class=delay-inputs style=displayflex;gap12px;align-itemscenter;
+                                div class=interval-input-card style=flex1;positionrelative;
+                                    input type=number id=min-delay-input class=form-input value=${savedMinDelay} min=5 max=60 step=1
+                                        style=width100%;box-sizingborder-box;padding14px 16px;padding-right45px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                    span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;秒span
+                                div
+                                span style=color${theme['--panel-text-muted']};font-size14px;font-weight600;padding0 4px;至span
+                                div class=interval-input-card style=flex1;positionrelative;
+                                    input type=number id=max-delay-input class=form-input value=${savedMaxDelay} min=10 max=120 step=1
+                                        style=width100%;box-sizingborder-box;padding14px 16px;padding-right45px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                    span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;秒span
+                                div
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;💡span
+                                span建议 strong style=color${theme['--panel-primary-color']};15-30 秒strong，贴近真人浏览节奏span
+                            div
+                        div
+                        div
+                    div
 
-                    <!-- 任务点击配置（日常任务 + 每日活动共用） -->
-                    <div class="config-section" style="margin-bottom:24px;" data-section="任务点击">
-                        <div class="section-header" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid ${theme['--panel-primary-color']}20;cursor:pointer;" title="点击展开/收起">
-                            <div class="section-icon" style="width:36px;height:36px;border-radius:10px;background:${theme['--panel-info-bg']};display:flex;align-items:center;justify-content:center;font-size:18px;">
+                    !-- 任务点击配置（日常任务 + 每日活动共用） --
+                    div class=config-section style=margin-bottom24px; data-section=任务点击
+                        div class=section-header style=displayflex;align-itemscenter;gap10px;margin-bottom16px;padding-bottom10px;border-bottom2px solid ${theme['--panel-primary-color']}20;cursorpointer; title=点击展开收起
+                            div class=section-icon style=width36px;height36px;border-radius10px;background${theme['--panel-info-bg']};displayflex;align-itemscenter;justify-contentcenter;font-size18px;
                                 🎯
-                            </div>
-                            <div style="flex:1;">
-                                <h4 class="section-title" style="margin:0;font-size:16px;color:${theme['--panel-primary-color']};font-weight:700;letter-spacing:-0.3px;">
+                            div
+                            div style=flex1;
+                                h4 class=section-title style=margin0;font-size16px;color${theme['--panel-primary-color']};font-weight700;letter-spacing-0.3px;
                                     任务点击
-                                </h4>
-                                <p class="section-desc" style="margin:2px 0 0;font-size:11px;color:${theme['--panel-text-muted']};font-weight:500;">
+                                h4
+                                p class=section-desc style=margin2px 0 0;font-size11px;color${theme['--panel-text-muted']};font-weight500;
                                     自动点击 earn 日常任务与 dashboard 每日活动区域未完成任务（共用配置）
-                                </p>
-                            </div>
-                            <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
-                        </div>
-                        <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="checkbox-cards">
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.autoClickTasks ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.autoClickTasks ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="自动点击任务 任务总开关 新版页面" data-accent="success">
-                                ${saved.autoClickTasks ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="auto-click-tasks-checkbox" ${saved.autoClickTasks ? 'checked' : ''}
-                                    style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                <div style="flex:1;">
-                                    <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                                        <span style="font-size:16px;">⚡</span>
+                                p
+                            div
+                            span class=section-toggle style=font-size14px;color${theme['--panel-text-muted']};transitiontransform 0.3s cubic-bezier(0.4,0,0.2,1);▼span
+                        div
+                        div class=section-content style=overflowhidden;max-height1000px;transitionmax-height 0.3s ease, opacity 0.3s ease;
+                        div class=checkbox-cards
+                            label class=checkbox-card style=flex1;displayflex;align-itemsflex-start;gap12px;padding18px;border2px solid ${saved.autoClickTasks  theme['--panel-primary-color']  theme['--panel-border']};border-radius14px;background${saved.autoClickTasks  'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)'  theme['--panel-hover-bg']};cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);positionrelative; data-search-tags=自动点击任务 任务总开关 新版页面 data-accent=success
+                                ${saved.autoClickTasks  'div class=badge style=positionabsolute;top10px;right10px;padding3px 8px;border-radius6px;background' + theme['--panel-primary-color'] + ';color#fff;font-size10px;font-weight700;已启用div'  ''}
+                                input type=checkbox id=auto-click-tasks-checkbox ${saved.autoClickTasks  'checked'  ''}
+                                    style=width20px;height20px;margin-top2px;accent-color${theme['--panel-primary-color']};cursorpointer;flex-shrink0;
+                                div style=flex1;
+                                    div style=font-size14px;color${theme['--panel-text-primary']};font-weight600;margin-bottom6px;displayflex;align-itemscenter;gap6px;
+                                        span style=font-size16px;⚡span
                                         自动点击任务
-                                    </div>
-                                    <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;background:${theme['--panel-bg']};padding:12px 14px;border-radius:8px;border:1px solid ${theme['--panel-border']};">
-                                        <div style="margin-bottom:8px;">控制 earn 日常任务与 dashboard 每日活动的自动点击，默认关闭。</div>
-                                        <div style="color:${theme['--panel-primary-color']};font-weight:500;padding:6px 8px;background:${theme['--panel-info-bg']};border-radius:6px;border-left:3px solid ${theme['--panel-primary-color']};margin-bottom:8px;">
+                                    div
+                                    div style=font-size12px;color${theme['--panel-text-muted']};line-height1.8;background${theme['--panel-bg']};padding12px 14px;border-radius8px;border1px solid ${theme['--panel-border']};
+                                        div style=margin-bottom8px;控制 earn 日常任务与 dashboard 每日活动的自动点击，默认关闭。div
+                                        div style=color${theme['--panel-primary-color']};font-weight500;padding6px 8px;background${theme['--panel-info-bg']};border-radius6px;border-left3px solid ${theme['--panel-primary-color']};margin-bottom8px;
                                             📌 任务点击仅支持新版 Microsoft Rewards 页面
-                                        </div>
-                                        <div style="color:${theme['--panel-warning-color']};font-weight:500;padding:6px 8px;background:${theme['--panel-warning-bg']};border-radius:6px;border-left:3px solid ${theme['--panel-warning-color']};">
+                                        div
+                                        div style=color${theme['--panel-warning-color']};font-weight500;padding6px 8px;background${theme['--panel-warning-bg']};border-radius6px;border-left3px solid ${theme['--panel-warning-color']};
                                             ⚠️ 关闭后上述自动点击将全部不再执行，仅保留搜索任务。
-                                        </div>
-                                    </div>
-                                </div>
-                            </label>
-                        </div>
-                        <div class="form-card" style="${cardStyle}" data-search-tags="滚动等待时间 任务滚动等待">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">⏳</span>
+                                        div
+                                    div
+                                div
+                            label
+                        div
+                        div class=form-card style=${cardStyle} data-search-tags=滚动等待时间 任务滚动等待
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom14px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;⏳span
                                 滚动后等待时间
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="滚动到任务区域后等待页面加载的时间">❓</span>
-                            </label>
-                            <div style="position:relative;">
-                                <input type="number" id="tasks-scroll-delay-input" class="form-input" value="${saved.tasksScrollDelay}" min="1000" max="10000" step="500"
-                                    style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:65px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">毫秒</span>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>默认 <strong style="color:${theme['--panel-primary-color']};">3000 毫秒</strong>，滚动到任务区域后的等待时间</span>
-                            </div>
-                        </div>
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=滚动到任务区域后等待页面加载的时间❓span
+                            label
+                            div style=positionrelative;
+                                input type=number id=tasks-scroll-delay-input class=form-input value=${saved.tasksScrollDelay} min=1000 max=10000 step=500
+                                    style=width100%;box-sizingborder-box;padding14px 16px;padding-right65px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;毫秒span
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;💡span
+                                span默认 strong style=color${theme['--panel-primary-color']};3000 毫秒strong，滚动到任务区域后的等待时间span
+                            div
+                        div
 
-                        <div class="form-card" style="${cardStyle}" data-search-tags="最大重试次数 任务重试">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">🔄</span>
+                        div class=form-card style=${cardStyle} data-search-tags=最大重试次数 任务重试
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom14px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;🔄span
                                 最大重试次数
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="未找到任务时的最大重试次数，0表示不重试">❓</span>
-                            </label>
-                            <div style="position:relative;">
-                                <input type="number" id="tasks-max-retries-input" class="form-input" value="${saved.tasksMaxRetries}" min="0" max="3" step="1"
-                                    style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:50px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">次</span>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>默认 <strong style="color:${theme['--panel-primary-color']};">0 次</strong>（不重试），未找到任务时的重试次数</span>
-                            </div>
-                        </div>
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=未找到任务时的最大重试次数，0表示不重试❓span
+                            label
+                            div style=positionrelative;
+                                input type=number id=tasks-max-retries-input class=form-input value=${saved.tasksMaxRetries} min=0 max=3 step=1
+                                    style=width100%;box-sizingborder-box;padding14px 16px;padding-right50px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;次span
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;💡span
+                                span默认 strong style=color${theme['--panel-primary-color']};0 次strong（不重试），未找到任务时的重试次数span
+                            div
+                        div
 
-                        <div class="form-card" style="${cardStyle}" data-search-tags="重试延迟 任务重试延迟">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">⏱️</span>
+                        div class=form-card style=${cardStyle} data-search-tags=重试延迟 任务重试延迟
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom14px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;⏱️span
                                 重试延迟
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="每次重试之间的等待时间">❓</span>
-                            </label>
-                            <div style="position:relative;">
-                                <input type="number" id="tasks-retry-delay-input" class="form-input" value="${saved.tasksRetryDelay}" min="500" max="10000" step="500"
-                                    style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:65px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">毫秒</span>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>默认 <strong style="color:${theme['--panel-primary-color']};">2000 毫秒</strong>（2 秒），每次重试之间的等待时间</span>
-                            </div>
-                        </div>
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=每次重试之间的等待时间❓span
+                            label
+                            div style=positionrelative;
+                                input type=number id=tasks-retry-delay-input class=form-input value=${saved.tasksRetryDelay} min=500 max=10000 step=500
+                                    style=width100%;box-sizingborder-box;padding14px 16px;padding-right65px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;毫秒span
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;💡span
+                                span默认 strong style=color${theme['--panel-primary-color']};2000 毫秒strong（2 秒），每次重试之间的等待时间span
+                            div
+                        div
 
-                        <div class="form-card" style="${cardStyle}" data-search-tags="关闭标签页延迟 任务关闭延迟">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">🚪</span>
+                        div class=form-card style=${cardStyle} data-search-tags=关闭标签页延迟 任务关闭延迟
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom14px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;🚪span
                                 完成后关闭延迟
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="任务处理完成后关闭标签页前的等待时间">❓</span>
-                            </label>
-                            <div style="position:relative;">
-                                <input type="number" id="tasks-close-tab-delay-input" class="form-input" value="${saved.tasksCloseTabDelay}" min="1000" max="30000" step="1000"
-                                    style="width:100%;box-sizing:border-box;padding:14px 16px;padding-right:65px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:50px;font-weight:600;">
-                                <span class="input-unit" style="position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:12px;color:${theme['--panel-text-muted']};font-weight:500;">毫秒</span>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>默认 <strong style="color:${theme['--panel-primary-color']};">1500 毫秒</strong>（1.5 秒）</span>
-                            </div>
-                        </div>
-                        </div>
-                    </div>
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=任务处理完成后关闭标签页前的等待时间❓span
+                            label
+                            div style=positionrelative;
+                                input type=number id=tasks-close-tab-delay-input class=form-input value=${saved.tasksCloseTabDelay} min=1000 max=30000 step=1000
+                                    style=width100%;box-sizingborder-box;padding14px 16px;padding-right65px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height50px;font-weight600;
+                                span class=input-unit style=positionabsolute;right16px;top50%;transformtranslateY(-50%);font-size12px;color${theme['--panel-text-muted']};font-weight500;毫秒span
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;💡span
+                                span默认 strong style=color${theme['--panel-primary-color']};1500 毫秒strong（1.5 秒）span
+                            div
+                        div
+                        div
+                    div
 
-                    <!-- APP 端任务 -->
-                    <div class="config-section" style="margin-bottom:24px;" data-section="APP端任务">
-                        <div class="section-header" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid ${theme['--panel-primary-color']}20;cursor:pointer;" title="点击展开/收起">
-                            <div class="section-icon" style="width:36px;height:36px;border-radius:10px;background:${theme['--panel-info-bg']};display:flex;align-items:center;justify-content:center;font-size:18px;">
+                    !-- APP 端任务 --
+                    div class=config-section style=margin-bottom24px; data-section=APP端任务
+                        div class=section-header style=displayflex;align-itemscenter;gap10px;margin-bottom16px;padding-bottom10px;border-bottom2px solid ${theme['--panel-primary-color']}20;cursorpointer; title=点击展开收起
+                            div class=section-icon style=width36px;height36px;border-radius10px;background${theme['--panel-info-bg']};displayflex;align-itemscenter;justify-contentcenter;font-size18px;
                                 📱
-                            </div>
-                            <div style="flex:1;">
-                                <h4 class="section-title" style="margin:0;font-size:16px;color:${theme['--panel-primary-color']};font-weight:700;letter-spacing:-0.3px;">
+                            div
+                            div style=flex1;
+                                h4 class=section-title style=margin0;font-size16px;color${theme['--panel-primary-color']};font-weight700;letter-spacing-0.3px;
                                     APP端任务
-                                </h4>
-                                <p class="section-desc" style="margin:2px 0 0;font-size:11px;color:${theme['--panel-text-muted']};font-weight:500;">
+                                h4
+                                p class=section-desc style=margin2px 0 0;font-size11px;color${theme['--panel-text-muted']};font-weight500;
                                     以移动端身份静默完成每日签到与资讯阅读，无需打开活动页面
-                                </p>
-                            </div>
-                            <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
-                        </div>
-                        <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="checkbox-cards" style="display:flex;gap:14px;">
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.appCheckInEnabled ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.appCheckInEnabled ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="APP签到 每日签到" data-accent="success">
-                                ${saved.appCheckInEnabled ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="app-checkin-checkbox" ${saved.appCheckInEnabled ? 'checked' : ''}
-                                    style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                <div style="flex:1;">
-                                    <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                                        <span style="font-size:16px;">📱</span>
+                                p
+                            div
+                            span class=section-toggle style=font-size14px;color${theme['--panel-text-muted']};transitiontransform 0.3s cubic-bezier(0.4,0,0.2,1);▼span
+                        div
+                        div class=section-content style=overflowhidden;max-height1000px;transitionmax-height 0.3s ease, opacity 0.3s ease;
+                        div class=checkbox-cards style=displayflex;gap14px;
+                            label class=checkbox-card style=flex1;displayflex;align-itemsflex-start;gap12px;padding18px;border2px solid ${saved.appCheckInEnabled  theme['--panel-primary-color']  theme['--panel-border']};border-radius14px;background${saved.appCheckInEnabled  'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)'  theme['--panel-hover-bg']};cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);positionrelative; data-search-tags=APP签到 每日签到 data-accent=success
+                                ${saved.appCheckInEnabled  'div class=badge style=positionabsolute;top10px;right10px;padding3px 8px;border-radius6px;background' + theme['--panel-primary-color'] + ';color#fff;font-size10px;font-weight700;已启用div'  ''}
+                                input type=checkbox id=app-checkin-checkbox ${saved.appCheckInEnabled  'checked'  ''}
+                                    style=width20px;height20px;margin-top2px;accent-color${theme['--panel-primary-color']};cursorpointer;flex-shrink0;
+                                div style=flex1;
+                                    div style=font-size14px;color${theme['--panel-text-primary']};font-weight600;margin-bottom6px;displayflex;align-itemscenter;gap6px;
+                                        span style=font-size16px;📱span
                                         APP每日签到
-                                    </div>
-                                    <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;background:${theme['--panel-bg']};padding:12px 14px;border-radius:8px;border:1px solid ${theme['--panel-border']};">
+                                    div
+                                    div style=font-size12px;color${theme['--panel-text-muted']};line-height1.8;background${theme['--panel-bg']};padding12px 14px;border-radius8px;border1px solid ${theme['--panel-border']};
                                         每日自动完成 APP 端签到并累计积分，当日已签则自动跳过。
-                                    </div>
-                                </div>
-                            </label>
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.appReadEnabled ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.appReadEnabled ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="APP阅读 资讯阅读 新闻阅读 阅读上限 每日阅读上限" data-accent="success">
-                                ${saved.appReadEnabled ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="app-read-checkbox" ${saved.appReadEnabled ? 'checked' : ''}
-                                    style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                <div style="flex:1;">
-                                    <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                                        <span style="font-size:16px;">📰</span>
+                                    div
+                                div
+                            label
+                            label class=checkbox-card style=flex1;displayflex;align-itemsflex-start;gap12px;padding18px;border2px solid ${saved.appReadEnabled  theme['--panel-primary-color']  theme['--panel-border']};border-radius14px;background${saved.appReadEnabled  'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)'  theme['--panel-hover-bg']};cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);positionrelative; data-search-tags=APP阅读 资讯阅读 新闻阅读 阅读上限 每日阅读上限 data-accent=success
+                                ${saved.appReadEnabled  'div class=badge style=positionabsolute;top10px;right10px;padding3px 8px;border-radius6px;background' + theme['--panel-primary-color'] + ';color#fff;font-size10px;font-weight700;已启用div'  ''}
+                                input type=checkbox id=app-read-checkbox ${saved.appReadEnabled  'checked'  ''}
+                                    style=width20px;height20px;margin-top2px;accent-color${theme['--panel-primary-color']};cursorpointer;flex-shrink0;
+                                div style=flex1;
+                                    div style=font-size14px;color${theme['--panel-text-primary']};font-weight600;margin-bottom6px;displayflex;align-itemscenter;gap6px;
+                                        span style=font-size16px;📰span
                                         APP资讯阅读
-                                    </div>
-                                    <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;background:${theme['--panel-bg']};padding:12px 14px;border-radius:8px;border:1px solid ${theme['--panel-border']};">
+                                    div
+                                    div style=font-size12px;color${theme['--panel-text-muted']};line-height1.8;background${theme['--panel-bg']};padding12px 14px;border-radius8px;border1px solid ${theme['--panel-border']};
                                         搜索执行前随机上报 0-3 篇资讯，完成每日阅读积分任务。
-                                        <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
-                                            <span style="font-size:11px;font-weight:600;">每日上限</span>
-                                            <input type="number" id="app-read-limit-input" value="${saved.appReadDailyLimit}" min="1" max="30" step="1"
-                                                style="width:64px;height:30px;box-sizing:border-box;padding:0 8px;border:2px solid ${theme['--panel-border']};border-radius:8px;font-size:12px;font-weight:600;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;">
-                                            <span style="font-size:11px;font-weight:600;">篇</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </label>
-                        </div>
-                        <div class="form-card" style="${cardStyle}" data-search-tags="APP设备标识 设备标识 UA 用户代理 机型 安卓 iOS">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">📲</span>
+                                        div style=margin-top8px;displayflex;align-itemscenter;gap6px;
+                                            span style=font-size11px;font-weight600;每日上限span
+                                            input type=number id=app-read-limit-input value=${saved.appReadDailyLimit} min=1 max=30 step=1
+                                                style=width64px;height30px;box-sizingborder-box;padding0 8px;border2px solid ${theme['--panel-border']};border-radius8px;font-size12px;font-weight600;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;
+                                            span style=font-size11px;font-weight600;篇span
+                                        div
+                                    div
+                                div
+                            label
+                        div
+                        div class=form-card style=${cardStyle} data-search-tags=APP设备标识 设备标识 UA 用户代理 机型 安卓 iOS
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom12px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;📲span
                                 APP 设备标识（UA）
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="切换 APP 端任务使用的设备标识，预设包含多款安卓机型与 iOS">❓</span>
-                            </label>
-                            <select id="app-ua-preset-select" style="width:100%;box-sizing:border-box;padding:12px 14px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:44px;font-weight:600;cursor:pointer;">
-                                ${APP_CLIENT_PRESETS.map(preset => `<option value="${preset.id}"${preset.id === saved.appUaPreset ? ' selected' : ''}>${utils.escapeHtml(preset.label)}</option>`).join('')}
-                            </select>
-                            <div style="margin-top:10px;padding:8px 10px;background:${theme['--panel-bg']};border:1px solid ${theme['--panel-border']};border-radius:8px;">
-                                <div style="display:flex;align-items:center;gap:8px;">
-                                    <span id="app-ua-preset-meta" style="flex:1;min-width:0;font-size:11px;font-weight:600;color:${theme['--panel-text-secondary']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></span>
-                                    <button id="app-ua-preset-toggle" style="flex-shrink:0;padding:3px 8px;font-size:10px;font-weight:600;border:1px solid ${theme['--panel-border']};border-radius:6px;background:transparent;color:${theme['--panel-text-secondary']};cursor:pointer;">展开 ⌄</button>
-                                </div>
-                                <div id="app-ua-preset-note" style="margin-top:4px;font-size:11px;color:${theme['--panel-text-muted']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
-                                <div id="app-ua-preset-ua" style="margin-top:4px;font-family:'Courier New',monospace;font-size:10px;line-height:1.5;color:${theme['--panel-text-muted']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;"></div>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>切换后无需重新授权，保存并刷新页面生效；上报异常时换回默认安卓预设</span>
-                            </div>
-                        </div>
-                        <div class="form-card" style="${cardStyle}" data-search-tags="APP授权 授权 APP端授权">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">🔐</span>
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=切换 APP 端任务使用的设备标识，预设包含多款安卓机型与 iOS❓span
+                            label
+                            select id=app-ua-preset-select style=width100%;box-sizingborder-box;padding12px 14px;border2px solid ${theme['--panel-border']};border-radius12px;font-size14px;background${theme['--panel-bg']};color${theme['--panel-text-primary']};outlinenone;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);height44px;font-weight600;cursorpointer;
+                                ${APP_CLIENT_PRESETS.map(preset = `option value=${preset.id}${preset.id === saved.appUaPreset  ' selected'  ''}${utils.escapeHtml(preset.label)}option`).join('')}
+                            select
+                            div style=margin-top10px;padding8px 10px;background${theme['--panel-bg']};border1px solid ${theme['--panel-border']};border-radius8px;
+                                div style=displayflex;align-itemscenter;gap8px;
+                                    span id=app-ua-preset-meta style=flex1;min-width0;font-size11px;font-weight600;color${theme['--panel-text-secondary']};white-spacenowrap;overflowhidden;text-overflowellipsis;span
+                                    button id=app-ua-preset-toggle style=flex-shrink0;padding3px 8px;font-size10px;font-weight600;border1px solid ${theme['--panel-border']};border-radius6px;backgroundtransparent;color${theme['--panel-text-secondary']};cursorpointer;展开 ⌄button
+                                div
+                                div id=app-ua-preset-note style=margin-top4px;font-size11px;color${theme['--panel-text-muted']};white-spacenowrap;overflowhidden;text-overflowellipsis;div
+                                div id=app-ua-preset-ua style=margin-top4px;font-family'Courier New',monospace;font-size10px;line-height1.5;color${theme['--panel-text-muted']};white-spacenowrap;overflowhidden;text-overflowellipsis;cursorpointer;div
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;💡span
+                                span切换后无需重新授权，保存并刷新页面生效；上报异常时换回默认安卓预设span
+                            div
+                        div
+                        div class=form-card style=${cardStyle} data-search-tags=APP授权 授权 APP端授权
+                            label style=displayflex;align-itemscenter;gap8px;margin-bottom14px;font-size14px;color${theme['--panel-text-primary']};font-weight600;
+                                span style=font-size16px;🔐span
                                 APP端授权
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="APP 端任务需要授权一次，之后自动续期">❓</span>
-                            </label>
-                            <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-                                <span id="app-auth-status" title="${appAuthRefreshToken ? '时间为令牌最近一次签发/续期时间，用于 7 天自动续期判断' : '点击「开始APP授权」完成授权'}" style="font-size:13px;font-weight:600;padding:8px 14px;border-radius:10px;background:${appAuthRefreshToken ? theme['--panel-success-bg'] : theme['--panel-warning-bg']};color:${appAuthRefreshToken ? theme['--panel-success-text'] : theme['--panel-warning-text']};border:1px solid ${appAuthRefreshToken ? theme['--panel-success-text'] + '40' : theme['--panel-warning-color'] + '40'};">
-                                    ${appAuthRefreshToken ? '✓ ' : '⚠️ '}${appAuthStatusText}
-                                </span>
-                                <button id="app-auth-start-btn" style="padding:10px 20px;border:none;border-radius:10px;font-size:13px;font-weight:600;color:#fff;background:${theme['--panel-primary-color']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);">
+                                span class=help-icon style=margin-leftauto;font-size14px;color${theme['--panel-text-muted']};cursorhelp; title=APP 端任务需要授权一次，之后自动续期❓span
+                            label
+                            div style=displayflex;align-itemscenter;gap12px;flex-wrapwrap;
+                                span id=app-auth-status title=${appAuthRefreshToken  '时间为令牌最近一次签发续期时间，用于 7 天自动续期判断'  '点击「开始APP授权」完成授权'} style=font-size13px;font-weight600;padding8px 14px;border-radius10px;background${appAuthRefreshToken  theme['--panel-success-bg']  theme['--panel-warning-bg']};color${appAuthRefreshToken  theme['--panel-success-text']  theme['--panel-warning-text']};border1px solid ${appAuthRefreshToken  theme['--panel-success-text'] + '40'  theme['--panel-warning-color'] + '40'};
+                                    ${appAuthRefreshToken  '✓ '  '⚠️ '}${appAuthStatusText}
+                                span
+                                button id=app-auth-start-btn style=padding10px 20px;bordernone;border-radius10px;font-size13px;font-weight600;color#fff;background${theme['--panel-primary-color']};cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);
                                     开始APP授权
-                                </button>
-                            </div>
-                            <div class="form-hint" style="${hintStyle}">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>点击后打开微软授权页（需已登录微软账号），授权码自动捕获并兑换，仅需授权一次</span>
-                            </div>
-                        </div>
-                        </div>
-                    </div>
+                                button
+                            div
+                            div class=form-hint style=${hintStyle}
+                                span style=flex-shrink0;💡span
+                                span点击后打开微软授权页（需已登录微软账号），授权码自动捕获并兑换，仅需授权一次span
+                            div
+                        div
+                        div
+                    div
 
-                    <!-- 配置管理 -->
-                    <div class="config-section" style="margin-bottom:24px;" data-section="配置管理">
-                        <div class="section-header" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid ${theme['--panel-primary-color']}20;cursor:pointer;" title="点击展开/收起">
-                            <div class="section-icon" style="width:36px;height:36px;border-radius:10px;background:${theme['--panel-success-bg']};display:flex;align-items:center;justify-content:center;font-size:18px;">
+                    !-- 配置管理 --
+                    div class=config-section style=margin-bottom24px; data-section=配置管理
+                        div class=section-header style=displayflex;align-itemscenter;gap10px;margin-bottom16px;padding-bottom10px;border-bottom2px solid ${theme['--panel-primary-color']}20;cursorpointer; title=点击展开收起
+                            div class=section-icon style=width36px;height36px;border-radius10px;background${theme['--panel-success-bg']};displayflex;align-itemscenter;justify-contentcenter;font-size18px;
                                 📦
-                            </div>
-                            <div style="flex:1;">
-                                <h4 class="section-title" style="margin:0;font-size:16px;color:${theme['--panel-primary-color']};font-weight:700;letter-spacing:-0.3px;">
+                            div
+                            div style=flex1;
+                                h4 class=section-title style=margin0;font-size16px;color${theme['--panel-primary-color']};font-weight700;letter-spacing-0.3px;
                                     配置管理
-                                </h4>
-                                <p class="section-desc" style="margin:2px 0 0;font-size:11px;color:${theme['--panel-text-muted']};font-weight:500;">
-                                    导出/导入配置，方便备份和迁移
-                                </p>
-                            </div>
-                            <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
-                        </div>
-                        <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="form-card" style="${cardStyle}">
-                            <div style="display:flex;gap:12px;">
-                                <button id="export-config-btn" style="flex:1;padding:14px 20px;border:2px solid ${theme['--panel-border']};border-radius:12px;background:transparent;color:${theme['--panel-text-primary']};font-size:14px;cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;user-select:none;position:relative;overflow:hidden;" title="导出当前配置">
-                                    <span style="font-size:16px;">📤</span>
-                                    <span>导出配置</span>
-                                </button>
-                                <button id="import-config-btn" style="flex:1;padding:14px 20px;border:2px solid ${theme['--panel-border']};border-radius:12px;background:transparent;color:${theme['--panel-text-primary']};font-size:14px;cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px;user-select:none;position:relative;overflow:hidden;" title="导入配置文件">
-                                    <span style="font-size:16px;">📥</span>
-                                    <span>导入配置</span>
-                                </button>
-                                <input type="file" id="config-file-input" accept=".json" style="display:none;">
-                            </div>
-                            <div class="form-hint" style="margin-top:12px;font-size:12px;color:${theme['--panel-text-muted']};line-height:1.7;">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>JSON 格式，可用于备份配置或迁移到其他浏览器/设备</span>
-                            </div>
-                        </div>
-                        </div>
-                    </div>
-                </div>
+                                h4
+                                p class=section-desc style=margin2px 0 0;font-size11px;color${theme['--panel-text-muted']};font-weight500;
+                                    导出导入配置，方便备份和迁移
+                                p
+                            div
+                            span class=section-toggle style=font-size14px;color${theme['--panel-text-muted']};transitiontransform 0.3s cubic-bezier(0.4,0,0.2,1);▼span
+                        div
+                        div class=section-content style=overflowhidden;max-height1000px;transitionmax-height 0.3s ease, opacity 0.3s ease;
+                        div class=form-card style=${cardStyle}
+                            div style=displayflex;gap12px;
+                                button id=export-config-btn style=flex1;padding14px 20px;border2px solid ${theme['--panel-border']};border-radius12px;backgroundtransparent;color${theme['--panel-text-primary']};font-size14px;cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);font-weight600;displayflex;align-itemscenter;justify-contentcenter;gap8px;user-selectnone;positionrelative;overflowhidden; title=导出当前配置
+                                    span style=font-size16px;📤span
+                                    span导出配置span
+                                button
+                                button id=import-config-btn style=flex1;padding14px 20px;border2px solid ${theme['--panel-border']};border-radius12px;backgroundtransparent;color${theme['--panel-text-primary']};font-size14px;cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);font-weight600;displayflex;align-itemscenter;justify-contentcenter;gap8px;user-selectnone;positionrelative;overflowhidden; title=导入配置文件
+                                    span style=font-size16px;📥span
+                                    span导入配置span
+                                button
+                                input type=file id=config-file-input accept=.json style=displaynone;
+                            div
+                            div class=form-hint style=margin-top12px;font-size12px;color${theme['--panel-text-muted']};line-height1.7;
+                                span style=flex-shrink0;💡span
+                                spanJSON 格式，可用于备份配置或迁移到其他浏览器设备span
+                            div
+                        div
+                        div
+                    div
+                div
 
-                <!-- 关于页面内容 -->
-                <div id="about-content" class="dialog-content" style="padding:24px 32px;overflow-y:auto;flex:1;display:none;">
-                    <!-- 脚本信息卡片 -->
-                    <div class="about-card" style="margin-bottom:24px;padding:28px;background:linear-gradient(135deg,${theme['--panel-info-bg']}20,transparent);border-radius:16px;border:1px solid ${theme['--panel-border']};">
-                        <div style="display:flex;align-items:flex-start;gap:20px;">
-                            <div style="width:72px;height:72px;border-radius:18px;background:linear-gradient(135deg,${theme['--panel-primary-color']},${theme['--panel-primary-color']}cc);display:flex;align-items:center;justify-content:center;font-size:36px;box-shadow:0 8px 24px ${theme['--panel-primary-color']}30;">
+                !-- 关于页面内容 --
+                div id=about-content class=dialog-content style=padding24px 32px;overflow-yauto;flex1;displaynone;
+                    !-- 脚本信息卡片 --
+                    div class=about-card style=margin-bottom24px;padding28px;backgroundlinear-gradient(135deg,${theme['--panel-info-bg']}20,transparent);border-radius16px;border1px solid ${theme['--panel-border']};
+                        div style=displayflex;align-itemsflex-start;gap20px;
+                            div style=width72px;height72px;border-radius18px;backgroundlinear-gradient(135deg,${theme['--panel-primary-color']},${theme['--panel-primary-color']}cc);displayflex;align-itemscenter;justify-contentcenter;font-size36px;box-shadow0 8px 24px ${theme['--panel-primary-color']}30;
                                 🚀
-                            </div>
-                            <div style="flex:1;">
-                                <h2 style="margin:0;font-size:28px;color:${theme['--panel-primary-color']};font-weight:800;letter-spacing:-0.5px;">
-                                    <a href="https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/" target="_blank" style="color:inherit;text-decoration:none;">Brian Tool</a>
-                                </h2>
-                                <p style="margin:6px 0 0;font-size:14px;color:${theme['--panel-text-muted']};font-weight:500;">
+                            div
+                            div style=flex1;
+                                h2 style=margin0;font-size28px;color${theme['--panel-primary-color']};font-weight800;letter-spacing-0.5px;
+                                    a href=httpsidbb98.github.iomicrosoft-bing-rewards-daily-task-script target=_blank style=colorinherit;text-decorationnone;Brian Toola
+                                h2
+                                p style=margin6px 0 0;font-size14px;color${theme['--panel-text-muted']};font-weight500;
                                     Bing Rewards 自动任务脚本
-                                </p>
-                                <div style="display:flex;gap:16px;margin-top:12px;">
-                                    <span style="display:flex;align-items:center;gap:4px;font-size:13px;color:${theme['--panel-text-secondary']};">
-                                        <span>📌</span>
-                                        <span>版本: <strong style="color:${theme['--panel-primary-color']};">v${currentVersion}</strong></span>
-                                    </span>
-                                    <span style="display:flex;align-items:center;gap:4px;font-size:13px;color:${theme['--panel-text-secondary']};">
-                                        <span>👤</span>
-                                        <span>作者: <a href="https://gitee.com/idbb98" target="_blank" style="color:${theme['--panel-primary-color']};text-decoration:none;font-weight:600;">Brian</a></span>
-                                    </span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 在线文档 -->
-                    <div class="about-card" style="margin-bottom:24px;padding:24px;background:${theme['--panel-hover-bg']};border-radius:16px;border:1px solid ${theme['--panel-border']};">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">
-                            <span style="font-size:20px;">📝</span>
-                            <h3 style="margin:0;font-size:18px;color:${theme['--panel-primary-color']};font-weight:700;">
+                                p
+                                div style=displayflex;gap16px;margin-top12px;
+                                    span style=displayflex;align-itemscenter;gap4px;font-size13px;color${theme['--panel-text-secondary']};
+                                        span📌span
+                                        span版本 strong style=color${theme['--panel-primary-color']};v${currentVersion}strongspan
+                                    span
+                                    span style=displayflex;align-itemscenter;gap4px;font-size13px;color${theme['--panel-text-secondary']};
+                                        span👤span
+                                        span作者 a href=httpsgitee.comidbb98 target=_blank style=color${theme['--panel-primary-color']};text-decorationnone;font-weight600;Brianaspan
+                                    span
+                                div
+                            div
+                        div
+                    div
+
+                    !-- 在线文档 --
+                    div class=about-card style=margin-bottom24px;padding24px;background${theme['--panel-hover-bg']};border-radius16px;border1px solid ${theme['--panel-border']};
+                        div style=displayflex;align-itemscenter;gap10px;margin-bottom18px;
+                            span style=font-size20px;📝span
+                            h3 style=margin0;font-size18px;color${theme['--panel-primary-color']};font-weight700;
                                 在线文档
-                            </h3>
-                        </div>
-                        <div style="display:flex;gap:12px;flex-wrap:wrap;">
-                            <a href="https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;padding:12px 20px;background:${theme['--panel-bg']};border-radius:12px;border:1px solid ${theme['--panel-border']};color:${theme['--panel-text-primary']};text-decoration:none;font-size:14px;font-weight:600;transition:all 0.25s;">
-                                <span style="font-size:18px;">📚</span>
-                                <span>文档首页</span>
-                            </a>
-                            <a href="https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/changelog/" target="_blank" rel="noopener" style="display:flex;align-items:center;gap:8px;padding:12px 20px;background:${theme['--panel-bg']};border-radius:12px;border:1px solid ${theme['--panel-border']};color:${theme['--panel-text-primary']};text-decoration:none;font-size:14px;font-weight:600;transition:all 0.25s;">
-                                <span style="font-size:18px;">🗒️</span>
-                                <span>更新日志</span>
-                            </a>
-                        </div>
-                    </div>
+                            h3
+                        div
+                        div style=displayflex;gap12px;flex-wrapwrap;
+                            a href=httpsidbb98.github.iomicrosoft-bing-rewards-daily-task-script target=_blank rel=noopener style=displayflex;align-itemscenter;gap8px;padding12px 20px;background${theme['--panel-bg']};border-radius12px;border1px solid ${theme['--panel-border']};color${theme['--panel-text-primary']};text-decorationnone;font-size14px;font-weight600;transitionall 0.25s;
+                                span style=font-size18px;📚span
+                                span文档首页span
+                            a
+                            a href=httpsidbb98.github.iomicrosoft-bing-rewards-daily-task-scriptchangelog target=_blank rel=noopener style=displayflex;align-itemscenter;gap8px;padding12px 20px;background${theme['--panel-bg']};border-radius12px;border1px solid ${theme['--panel-border']};color${theme['--panel-text-primary']};text-decorationnone;font-size14px;font-weight600;transitionall 0.25s;
+                                span style=font-size18px;🗒️span
+                                span更新日志span
+                            a
+                        div
+                    div
 
-                    <!-- 功能说明 -->
-                    <div class="about-card" style="margin-bottom:24px;padding:24px;background:${theme['--panel-hover-bg']};border-radius:16px;border:1px solid ${theme['--panel-border']};">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">
-                            <span style="font-size:20px;">✨</span>
-                            <h3 style="margin:0;font-size:18px;color:${theme['--panel-primary-color']};font-weight:700;">
+                    !-- 功能说明 --
+                    div class=about-card style=margin-bottom24px;padding24px;background${theme['--panel-hover-bg']};border-radius16px;border1px solid ${theme['--panel-border']};
+                        div style=displayflex;align-itemscenter;gap10px;margin-bottom18px;
+                            span style=font-size20px;✨span
+                            h3 style=margin0;font-size18px;color${theme['--panel-primary-color']};font-weight700;
                                 功能说明
-                            </h3>
-                        </div>
-                        <ul style="margin:0;padding-left:24px;">
-                            <li style="margin-bottom:10px;font-size:14px;color:${theme['--panel-text-primary']};line-height:1.8;">
-                                <strong style="color:${theme['--panel-primary-color']};">🔍 自动搜索</strong> - 自动执行必应搜索任务，获取每日积分
-                            </li>
-                            <li style="margin-bottom:10px;font-size:14px;color:${theme['--panel-text-primary']};line-height:1.8;">
-                                <strong style="color:${theme['--panel-success-text']};">🎯 智能优化</strong> - 支持随机加词、截词功能，模拟真实搜索行为
-                            </li>
-                            <li style="margin-bottom:10px;font-size:14px;color:${theme['--panel-text-primary']};line-height:1.8;">
-                                <strong style="color:${theme['--panel-info-text']};">⏱️ 智能延迟</strong> - 可配置的搜索间隔和暂停时间，避免触发风控
-                            </li>
-                            <li style="font-size:14px;color:${theme['--panel-text-primary']};line-height:1.8;">
-                                <strong style="color:${theme['--panel-warning-text']};">📊 进度追踪</strong> - 实时显示任务进度和剩余时间
-                            </li>
-                        </ul>
-                    </div>
+                            h3
+                        div
+                        ul style=margin0;padding-left24px;
+                            li style=margin-bottom10px;font-size14px;color${theme['--panel-text-primary']};line-height1.8;
+                                strong style=color${theme['--panel-primary-color']};🔍 自动搜索strong - 自动执行必应搜索任务，获取每日积分
+                            li
+                            li style=margin-bottom10px;font-size14px;color${theme['--panel-text-primary']};line-height1.8;
+                                strong style=color${theme['--panel-success-text']};🎯 智能优化strong - 支持随机加词、截词功能，模拟真实搜索行为
+                            li
+                            li style=margin-bottom10px;font-size14px;color${theme['--panel-text-primary']};line-height1.8;
+                                strong style=color${theme['--panel-info-text']};⏱️ 智能延迟strong - 可配置的搜索间隔和暂停时间，避免触发风控
+                            li
+                            li style=font-size14px;color${theme['--panel-text-primary']};line-height1.8;
+                                strong style=color${theme['--panel-warning-text']};📊 进度追踪strong - 实时显示任务进度和剩余时间
+                            li
+                        ul
+                    div
 
-                    <!-- 协议与条款 -->
-                    <div class="about-card" style="margin-bottom:24px;padding:24px;background:${theme['--panel-hover-bg']};border-radius:16px;border:1px solid ${theme['--panel-border']};">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">
-                            <span style="font-size:20px;">📜</span>
-                            <h3 style="margin:0;font-size:18px;color:${theme['--panel-primary-color']};font-weight:700;">
+                    !-- 协议与条款 --
+                    div class=about-card style=margin-bottom24px;padding24px;background${theme['--panel-hover-bg']};border-radius16px;border1px solid ${theme['--panel-border']};
+                        div style=displayflex;align-itemscenter;gap10px;margin-bottom18px;
+                            span style=font-size20px;📜span
+                            h3 style=margin0;font-size18px;color${theme['--panel-primary-color']};font-weight700;
                                 使用条款与协议
-                            </h3>
-                        </div>
-                        <div style="font-size:13px;color:${theme['--panel-text-secondary']};line-height:1.8;">
-                            <p style="margin:0 0 12px;">
+                            h3
+                        div
+                        div style=font-size13px;color${theme['--panel-text-secondary']};line-height1.8;
+                            p style=margin0 0 12px;
                                 本脚本仅供学习和个人使用。使用本脚本即表示您同意以下条款：
-                            </p>
-                            <ul style="margin:0;padding-left:20px;">
-                                <li style="margin-bottom:8px;">本脚本仅用于个人学习和研究目的</li>
-                                <li style="margin-bottom:8px;">请勿用于商业用途或大规模部署</li>
-                                <li style="margin-bottom:8px;">使用本脚本需遵守微软必应服务条款</li>
-                                <li style="margin-bottom:8px;">作者不对使用本脚本造成的任何后果负责</li>
-                                <li>建议合理使用，避免过度频繁操作</li>
-                            </ul>
-                        </div>
-                    </div>
+                            p
+                            ul style=margin0;padding-left20px;
+                                li style=margin-bottom8px;本脚本仅用于个人学习和研究目的li
+                                li style=margin-bottom8px;请勿用于商业用途或大规模部署li
+                                li style=margin-bottom8px;使用本脚本需遵守微软必应服务条款li
+                                li style=margin-bottom8px;作者不对使用本脚本造成的任何后果负责li
+                                li建议合理使用，避免过度频繁操作li
+                            ul
+                        div
+                    div
 
-                    <!-- 联系与支持 -->
-                    <div class="about-card" style="margin-bottom:24px;padding:24px;background:${theme['--panel-hover-bg']};border-radius:16px;border:1px solid ${theme['--panel-border']};">
-                        <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">
-                            <span style="font-size:20px;">💬</span>
-                            <h3 style="margin:0;font-size:18px;color:${theme['--panel-primary-color']};font-weight:700;">
+                    !-- 联系与支持 --
+                    div class=about-card style=margin-bottom24px;padding24px;background${theme['--panel-hover-bg']};border-radius16px;border1px solid ${theme['--panel-border']};
+                        div style=displayflex;align-itemscenter;gap10px;margin-bottom18px;
+                            span style=font-size20px;💬span
+                            h3 style=margin0;font-size18px;color${theme['--panel-primary-color']};font-weight700;
                                 联系与支持
-                            </h3>
-                        </div>
-                        <div style="display:flex;flex-wrap:wrap;gap:12px;">
-                            <a href="https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/" target="_blank" style="display:flex;align-items:center;gap:8px;padding:12px 20px;background:${theme['--panel-bg']};border-radius:12px;border:1px solid ${theme['--panel-border']};color:${theme['--panel-text-primary']};text-decoration:none;font-size:14px;font-weight:600;transition:all 0.25s;">
-                                <span style="font-size:18px;">💎</span>
-                                <span>项目主页</span>
-                            </a>
-                            <a href="https://gitee.com/idbb98/microsoft-bing-rewards-daily-task-script/issues" target="_blank" style="display:flex;align-items:center;gap:8px;padding:12px 20px;background:${theme['--panel-bg']};border-radius:12px;border:1px solid ${theme['--panel-border']};color:${theme['--panel-text-primary']};text-decoration:none;font-size:14px;font-weight:600;transition:all 0.25s;">
-                                <span style="font-size:18px;">📮</span>
-                                <span>反馈问题</span>
-                            </a>
-                            <a href="mailto:idbb98@163.com" style="display:flex;align-items:center;gap:8px;padding:12px 20px;background:${theme['--panel-bg']};border-radius:12px;border:1px solid ${theme['--panel-border']};color:${theme['--panel-text-primary']};text-decoration:none;font-size:14px;font-weight:600;transition:all 0.25s;">
-                                <span style="font-size:18px;">✉️</span>
-                                <span>发送邮件</span>
-                            </a>
-                        </div>
-                        <p style="margin-top:16px;font-size:12px;color:${theme['--panel-text-muted']};">
+                            h3
+                        div
+                        div style=displayflex;flex-wrapwrap;gap12px;
+                            a href=httpsidbb98.github.iomicrosoft-bing-rewards-daily-task-script target=_blank style=displayflex;align-itemscenter;gap8px;padding12px 20px;background${theme['--panel-bg']};border-radius12px;border1px solid ${theme['--panel-border']};color${theme['--panel-text-primary']};text-decorationnone;font-size14px;font-weight600;transitionall 0.25s;
+                                span style=font-size18px;💎span
+                                span项目主页span
+                            a
+                            a href=httpsgitee.comidbb98microsoft-bing-rewards-daily-task-scriptissues target=_blank style=displayflex;align-itemscenter;gap8px;padding12px 20px;background${theme['--panel-bg']};border-radius12px;border1px solid ${theme['--panel-border']};color${theme['--panel-text-primary']};text-decorationnone;font-size14px;font-weight600;transitionall 0.25s;
+                                span style=font-size18px;📮span
+                                span反馈问题span
+                            a
+                            a href=mailtoidbb98@163.com style=displayflex;align-itemscenter;gap8px;padding12px 20px;background${theme['--panel-bg']};border-radius12px;border1px solid ${theme['--panel-border']};color${theme['--panel-text-primary']};text-decorationnone;font-size14px;font-weight600;transitionall 0.25s;
+                                span style=font-size18px;✉️span
+                                span发送邮件span
+                            a
+                        div
+                        p style=margin-top16px;font-size12px;color${theme['--panel-text-muted']};
                             如果您遇到问题或有改进建议，欢迎随时联系！
-                        </p>
-                    </div>
+                        p
+                    div
 
-                </div>
+                div
 
-                <!-- 固定底部按钮区 -->
-                <div class="dialog-footer" style="display:flex;gap:12px;justify-content:space-between;padding:20px 32px;border-top:1px solid ${theme['--panel-border']};background:linear-gradient(135deg,${theme['--panel-hover-bg']} 0%,${theme['--panel-bg']} 100%);">
-                    <button id="settings-reset-btn" style="padding:14px 24px;border:2px solid ${theme['--panel-border']};border-radius:12px;background:transparent;color:${theme['--panel-text-secondary']};font-size:14px;cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);font-weight:600;display:flex;align-items:center;gap:8px;user-select:none;position:relative;overflow:hidden;" title="恢复所有设置为默认值">
-                        <span style="font-size:16px;">🔄</span>
-                        <span>恢复默认</span>
-                    </button>
-                    <div class="btn-group" style="display:flex;gap:12px;">
-                        <button id="settings-cancel-btn" style="padding:14px 28px;border:2px solid ${theme['--panel-border']};border-radius:12px;background:transparent;color:${theme['--panel-text-primary']};font-size:14px;cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);font-weight:600;user-select:none;position:relative;overflow:hidden;">
+                !-- 固定底部按钮区 --
+                div class=dialog-footer style=displayflex;gap12px;justify-contentspace-between;padding20px 32px;border-top1px solid ${theme['--panel-border']};backgroundlinear-gradient(135deg,${theme['--panel-hover-bg']} 0%,${theme['--panel-bg']} 100%);
+                    button id=settings-reset-btn style=padding14px 24px;border2px solid ${theme['--panel-border']};border-radius12px;backgroundtransparent;color${theme['--panel-text-secondary']};font-size14px;cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);font-weight600;displayflex;align-itemscenter;gap8px;user-selectnone;positionrelative;overflowhidden; title=恢复所有设置为默认值
+                        span style=font-size16px;🔄span
+                        span恢复默认span
+                    button
+                    div class=btn-group style=displayflex;gap12px;
+                        button id=settings-cancel-btn style=padding14px 28px;border2px solid ${theme['--panel-border']};border-radius12px;backgroundtransparent;color${theme['--panel-text-primary']};font-size14px;cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);font-weight600;user-selectnone;positionrelative;overflowhidden;
                             取消
-                        </button>
-                        <button id="settings-save-btn" style="padding:14px 36px;border:none;border-radius:12px;background:linear-gradient(135deg,${theme['--panel-primary-color']},${theme['--panel-primary-color']}dd);color:#ffffff;font-size:14px;cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);font-weight:700;box-shadow:0 6px 20px ${theme['--panel-primary-color']}50;display:flex;align-items:center;gap:8px;user-select:none;position:relative;overflow:hidden;">
-                            <span style="font-size:16px;">💾</span>
-                            <span>保存配置</span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <style>
+                        button
+                        button id=settings-save-btn style=padding14px 36px;bordernone;border-radius12px;backgroundlinear-gradient(135deg,${theme['--panel-primary-color']},${theme['--panel-primary-color']}dd);color#ffffff;font-size14px;cursorpointer;transitionall 0.3s cubic-bezier(0.4,0,0.2,1);font-weight700;box-shadow0 6px 20px ${theme['--panel-primary-color']}50;displayflex;align-itemscenter;gap8px;user-selectnone;positionrelative;overflowhidden;
+                            span style=font-size16px;💾span
+                            span保存配置span
+                        button
+                    div
+                div
+            div
+        div
+        style
             @keyframes dialogSlideIn {
-                from { opacity: 0; transform: translateY(-30px) scale(0.92); }
-                to { opacity: 1; transform: translateY(0) scale(1); }
+                from { opacity 0; transform translateY(-30px) scale(0.92); }
+                to { opacity 1; transform translateY(0) scale(1); }
             }
             @keyframes fadeIn {
-                from { opacity: 0; }
-                to { opacity: 1; }
+                from { opacity 0; }
+                to { opacity 1; }
             }
             @keyframes buttonRipple {
-                0% { transform: scale(0); opacity: 0.5; }
-                100% { transform: scale(4); opacity: 0; }
+                0% { transform scale(0); opacity 0.5; }
+                100% { transform scale(4); opacity 0; }
             }
             @keyframes pulse {
-                0%, 100% { opacity: 1; }
-                50% { opacity: 0.5; }
+                0%, 100% { opacity 1; }
+                50% { opacity 0.5; }
             }
-            #settings-dialog > div > div > div:nth-child(2)::-webkit-scrollbar { width: 8px; }
-            #settings-dialog > div > div > div:nth-child(2)::-webkit-scrollbar-track { background: transparent; }
-            #settings-dialog > div > div > div:nth-child(2)::-webkit-scrollbar-thumb { background: ${theme['--panel-border']}; border-radius: 4px; }
-            #settings-dialog > div > div > div:nth-child(2)::-webkit-scrollbar-thumb:hover { background: ${theme['--panel-text-muted']}; }
+            #settings-dialog  div  div  divnth-child(2)-webkit-scrollbar { width 8px; }
+            #settings-dialog  div  div  divnth-child(2)-webkit-scrollbar-track { background transparent; }
+            #settings-dialog  div  div  divnth-child(2)-webkit-scrollbar-thumb { background ${theme['--panel-border']}; border-radius 4px; }
+            #settings-dialog  div  div  divnth-child(2)-webkit-scrollbar-thumbhover { background ${theme['--panel-text-muted']}; }
 
-            /* 紧凑多列布局 - 提升信息密度；align-items:start 让卡片按内容自适应高度，避免同排矮卡片被拉伸留白 */
-            /* 最小列宽 350px：对话框加宽到 1120px 时仍保持 2 列（每列更宽），不会退化成 3 列导致单卡片板块出现空洞 */
+             紧凑多列布局 - 提升信息密度；align-itemsstart 让卡片按内容自适应高度，避免同排矮卡片被拉伸留白 
+             最小列宽 350px：对话框加宽到 1120px 时仍保持 2 列（每列更宽），不会退化成 3 列导致单卡片板块出现空洞 
             #settings-dialog .section-content {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-                gap: 12px;
-                align-items: start;
+                display grid;
+                grid-template-columns repeat(auto-fit, minmax(350px, 1fr));
+                gap 12px;
+                align-items start;
             }
-            #settings-dialog .section-content > .form-card,
-            #settings-dialog .section-content > .checkbox-cards,
-            #settings-dialog .section-content > .form-hint {
-                margin-bottom: 0 !important;
+            #settings-dialog .section-content  .form-card,
+            #settings-dialog .section-content  .checkbox-cards,
+            #settings-dialog .section-content  .form-hint {
+                margin-bottom 0 !important;
             }
-            #settings-dialog .section-content > .checkbox-cards,
-            #settings-dialog .section-content > .form-hint {
-                grid-column: 1 / -1;
+            #settings-dialog .section-content  .checkbox-cards,
+            #settings-dialog .section-content  .form-hint {
+                grid-column 1  -1;
             }
             #settings-dialog .form-card {
-                padding: 14px !important;
-                border-radius: 12px !important;
+                padding 14px !important;
+                border-radius 12px !important;
             }
             #settings-dialog .form-card label,
-            #settings-dialog .form-card > label {
-                margin-bottom: 8px !important;
-                font-size: 13px !important;
+            #settings-dialog .form-card  label {
+                margin-bottom 8px !important;
+                font-size 13px !important;
             }
             #settings-dialog .form-card .radio-cards {
-                gap: 10px !important;
+                gap 10px !important;
             }
             #settings-dialog .form-input {
-                height: 40px !important;
+                height 40px !important;
             }
             #settings-dialog .form-hint {
-                font-size: 11px !important;
-                margin-top: 8px !important;
-                line-height: 1.6 !important;
+                font-size 11px !important;
+                margin-top 8px !important;
+                line-height 1.6 !important;
             }
             #settings-dialog .interval-input-card,
             #settings-dialog .factor-input-card {
-                padding: 10px !important;
-                border-radius: 10px !important;
+                padding 10px !important;
+                border-radius 10px !important;
             }
             #settings-dialog .config-section {
-                margin-bottom: 18px !important;
+                margin-bottom 18px !important;
             }
             #settings-dialog .section-header {
-                margin-bottom: 10px !important;
-                padding-bottom: 8px !important;
+                margin-bottom 10px !important;
+                padding-bottom 8px !important;
             }
-            #settings-dialog .section-content > .factor-inputs {
-                grid-column: 1 / -1;
-                gap: 12px !important;
-                margin-bottom: 0 !important;
+            #settings-dialog .section-content  .factor-inputs {
+                grid-column 1  -1;
+                gap 12px !important;
+                margin-bottom 0 !important;
             }
-            #settings-dialog [data-search-tags*="面板默认显示状态"] {
-                grid-column: 1 / -1;
+            #settings-dialog [data-search-tags=面板默认显示状态] {
+                grid-column 1  -1;
             }
 
-            /* 搜索框样式 */
+             搜索框样式 
             #search-wrapper {
-                position: relative;
+                position relative;
             }
-            #settings-search-input:focus {
-                border-color: ${theme['--panel-primary-color']} !important;
-                box-shadow: 0 0 0 3px ${theme['--panel-primary-color']}20 !important;
+            #settings-search-inputfocus {
+                border-color ${theme['--panel-primary-color']} !important;
+                box-shadow 0 0 0 3px ${theme['--panel-primary-color']}20 !important;
             }
-            .help-icon:hover {
-                color: ${theme['--panel-primary-color']} !important;
+            .help-iconhover {
+                color ${theme['--panel-primary-color']} !important;
             }
 
-            /* 响应式布局 - 设置对话框 */
-            /* 中等宽度窗口：放宽最小列宽限制，避免降级为单列 */
-            @media (max-width: 900px) {
+             响应式布局 - 设置对话框 
+             中等宽度窗口：放宽最小列宽限制，避免降级为单列 
+            @media (max-width 900px) {
                 #settings-dialog .section-content {
-                    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+                    grid-template-columns repeat(auto-fit, minmax(260px, 1fr));
                 }
             }
 
-            @media (max-width: 768px) {
+            @media (max-width 768px) {
                 #settings-dialog .dialog-container {
-                    width: 95vw !important;
-                    max-width: 95vw !important;
-                    min-width: auto !important;
-                    border-radius: 16px !important;
-                    max-height: 92vh !important;
+                    width 95vw !important;
+                    max-width 95vw !important;
+                    min-width auto !important;
+                    border-radius 16px !important;
+                    max-height 92vh !important;
                 }
                 #settings-dialog .dialog-header {
-                    padding: 20px 20px 16px !important;
-                    flex-wrap: wrap !important;
+                    padding 20px 20px 16px !important;
+                    flex-wrap wrap !important;
                 }
                 #settings-dialog .dialog-header-icon {
-                    width: 40px !important;
-                    height: 40px !important;
-                    font-size: 22px !important;
-                    border-radius: 10px !important;
+                    width 40px !important;
+                    height 40px !important;
+                    font-size 22px !important;
+                    border-radius 10px !important;
                 }
                 #settings-dialog .dialog-header h3 {
-                    font-size: 20px !important;
+                    font-size 20px !important;
                 }
                 #settings-dialog .dialog-header p {
-                    font-size: 11px !important;
+                    font-size 11px !important;
                 }
                 #settings-dialog #search-wrapper {
-                    width: 100% !important;
-                    max-width: none !important;
+                    width 100% !important;
+                    max-width none !important;
                 }
                 #settings-dialog .dialog-close-btn {
-                    width: 36px !important;
-                    height: 36px !important;
-                    font-size: 18px !important;
+                    width 36px !important;
+                    height 36px !important;
+                    font-size 18px !important;
                 }
                 #settings-dialog .dialog-content {
-                    padding: 20px !important;
+                    padding 20px !important;
                 }
                 #settings-dialog .config-section {
-                    margin-bottom: 20px !important;
+                    margin-bottom 20px !important;
                 }
                 #settings-dialog .section-header {
-                    margin-bottom: 12px !important;
-                    padding-bottom: 8px !important;
+                    margin-bottom 12px !important;
+                    padding-bottom 8px !important;
                 }
                 #settings-dialog .section-icon {
-                    width: 30px !important;
-                    height: 30px !important;
-                    font-size: 15px !important;
-                    border-radius: 8px !important;
+                    width 30px !important;
+                    height 30px !important;
+                    font-size 15px !important;
+                    border-radius 8px !important;
                 }
                 #settings-dialog .section-title {
-                    font-size: 14px !important;
+                    font-size 14px !important;
                 }
                 #settings-dialog .section-desc {
-                    font-size: 10px !important;
+                    font-size 10px !important;
                 }
                 #settings-dialog .form-card {
-                    padding: 14px !important;
-                    border-radius: 12px !important;
-                    margin-bottom: 12px !important;
+                    padding 14px !important;
+                    border-radius 12px !important;
+                    margin-bottom 12px !important;
                 }
                 #settings-dialog .form-card label {
-                    font-size: 13px !important;
-                    margin-bottom: 8px !important;
+                    font-size 13px !important;
+                    margin-bottom 8px !important;
                 }
                 #settings-dialog .form-input {
-                    height: 44px !important;
-                    padding: 12px 14px !important;
-                    font-size: 13px !important;
-                    border-radius: 10px !important;
+                    height 44px !important;
+                    padding 12px 14px !important;
+                    font-size 13px !important;
+                    border-radius 10px !important;
                 }
                 #settings-dialog .checkbox-cards {
-                    gap: 10px !important;
+                    gap 10px !important;
                 }
                 #settings-dialog .checkbox-card {
-                    padding: 14px !important;
-                    border-radius: 12px !important;
+                    padding 14px !important;
+                    border-radius 12px !important;
                 }
-                #settings-dialog .checkbox-card input[type="checkbox"] {
-                    width: 18px !important;
-                    height: 18px !important;
+                #settings-dialog .checkbox-card input[type=checkbox] {
+                    width 18px !important;
+                    height 18px !important;
                 }
                 #settings-dialog .checkbox-card .badge {
-                    font-size: 9px !important;
-                    padding: 2px 6px !important;
+                    font-size 9px !important;
+                    padding 2px 6px !important;
                 }
                 #settings-dialog .factor-inputs {
-                    gap: 10px !important;
+                    gap 10px !important;
                 }
                 #settings-dialog .factor-input-card {
-                    padding: 14px !important;
-                    border-radius: 12px !important;
+                    padding 14px !important;
+                    border-radius 12px !important;
                 }
                 #settings-dialog .factor-input-card input {
-                    height: 42px !important;
-                    padding: 10px 12px !important;
-                    font-size: 13px !important;
-                    border-radius: 8px !important;
+                    height 42px !important;
+                    padding 10px 12px !important;
+                    font-size 13px !important;
+                    border-radius 8px !important;
                 }
                 #settings-dialog .interval-inputs {
-                    gap: 8px !important;
+                    gap 8px !important;
                 }
                 #settings-dialog .interval-input-card {
-                    padding: 14px !important;
-                    border-radius: 12px !important;
+                    padding 14px !important;
+                    border-radius 12px !important;
                 }
                 #settings-dialog .interval-input-card input {
-                    height: 46px !important;
-                    padding: 12px 14px !important;
-                    padding-right: 40px !important;
-                    font-size: 13px !important;
-                    border-radius: 10px !important;
+                    height 46px !important;
+                    padding 12px 14px !important;
+                    padding-right 40px !important;
+                    font-size 13px !important;
+                    border-radius 10px !important;
                 }
                 #settings-dialog .input-unit {
-                    font-size: 11px !important;
-                    right: 12px !important;
+                    font-size 11px !important;
+                    right 12px !important;
                 }
                 #settings-dialog .dialog-footer {
-                    padding: 16px 20px !important;
-                    flex-wrap: wrap !important;
-                    gap: 10px !important;
+                    padding 16px 20px !important;
+                    flex-wrap wrap !important;
+                    gap 10px !important;
                 }
                 #settings-dialog .dialog-footer button {
-                    padding: 12px 20px !important;
-                    font-size: 13px !important;
-                    border-radius: 10px !important;
+                    padding 12px 20px !important;
+                    font-size 13px !important;
+                    border-radius 10px !important;
                 }
                 #settings-dialog .dialog-footer .btn-group {
-                    flex-wrap: wrap !important;
-                    width: 100% !important;
-                    justify-content: flex-end !important;
+                    flex-wrap wrap !important;
+                    width 100% !important;
+                    justify-content flex-end !important;
                 }
             }
 
-            @media (max-width: 480px) {
+            @media (max-width 480px) {
                 #settings-dialog .dialog-container {
-                    width: 96vw !important;
-                    max-width: 96vw !important;
-                    border-radius: 12px !important;
-                    max-height: 95vh !important;
+                    width 96vw !important;
+                    max-width 96vw !important;
+                    border-radius 12px !important;
+                    max-height 95vh !important;
                 }
                 #settings-dialog .dialog-header {
-                    padding: 16px !important;
+                    padding 16px !important;
                 }
                 #settings-dialog .dialog-header-icon {
-                    width: 36px !important;
-                    height: 36px !important;
-                    font-size: 20px !important;
+                    width 36px !important;
+                    height 36px !important;
+                    font-size 20px !important;
                 }
                 #settings-dialog .dialog-header h3 {
-                    font-size: 18px !important;
+                    font-size 18px !important;
                 }
                 #settings-dialog .dialog-header p {
-                    display: none !important;
+                    display none !important;
                 }
                 #settings-dialog .nav-tabs {
-                    order: 3 !important;
-                    width: 100% !important;
-                    justify-content: center !important;
+                    order 3 !important;
+                    width 100% !important;
+                    justify-content center !important;
                 }
                 #settings-dialog .nav-tab {
-                    padding: 10px 16px !important;
-                    font-size: 12px !important;
+                    padding 10px 16px !important;
+                    font-size 12px !important;
                 }
                 #settings-dialog .dialog-close-btn {
-                    width: 32px !important;
-                    height: 32px !important;
+                    width 32px !important;
+                    height 32px !important;
                 }
                 #settings-dialog .dialog-content {
-                    padding: 16px !important;
+                    padding 16px !important;
                 }
                 #settings-dialog .config-section {
-                    margin-bottom: 20px !important;
+                    margin-bottom 20px !important;
                 }
                 #settings-dialog .section-icon {
-                    width: 28px !important;
-                    height: 28px !important;
-                    font-size: 14px !important;
+                    width 28px !important;
+                    height 28px !important;
+                    font-size 14px !important;
                 }
                 #settings-dialog .section-title {
-                    font-size: 13px !important;
+                    font-size 13px !important;
                 }
                 #settings-dialog .form-card {
-                    padding: 12px !important;
-                    border-radius: 10px !important;
-                    margin-bottom: 10px !important;
+                    padding 12px !important;
+                    border-radius 10px !important;
+                    margin-bottom 10px !important;
                 }
                 #settings-dialog .form-card label {
-                    font-size: 12px !important;
+                    font-size 12px !important;
                 }
                 #settings-dialog .form-input {
-                    height: 40px !important;
-                    padding: 10px 12px !important;
-                    font-size: 12px !important;
+                    height 40px !important;
+                    padding 10px 12px !important;
+                    font-size 12px !important;
                 }
                 #settings-dialog .form-hint {
-                    font-size: 11px !important;
+                    font-size 11px !important;
                 }
                 #settings-dialog .form-hint code {
-                    font-size: 10px !important;
-                    padding: 2px 6px !important;
+                    font-size 10px !important;
+                    padding 2px 6px !important;
                 }
                 #settings-dialog .checkbox-cards {
-                    flex-direction: column !important;
-                    gap: 8px !important;
+                    flex-direction column !important;
+                    gap 8px !important;
                 }
                 #settings-dialog .checkbox-card {
-                    padding: 12px !important;
+                    padding 12px !important;
                 }
                 #settings-dialog .factor-inputs,
                 #settings-dialog .interval-inputs,
                 #settings-dialog .delay-inputs {
-                    flex-direction: column !important;
-                    gap: 8px !important;
+                    flex-direction column !important;
+                    gap 8px !important;
                 }
                 #settings-dialog .factor-input-card,
                 #settings-dialog .interval-input-card {
-                    width: 100% !important;
+                    width 100% !important;
                 }
                 #settings-dialog .dialog-footer {
-                    padding: 12px 16px !important;
-                    flex-direction: column-reverse !important;
+                    padding 12px 16px !important;
+                    flex-direction column-reverse !important;
                 }
-                #settings-dialog .dialog-footer > button:first-child {
-                    width: 100% !important;
-                    margin-top: 0 !important;
+                #settings-dialog .dialog-footer  buttonfirst-child {
+                    width 100% !important;
+                    margin-top 0 !important;
                 }
                 #settings-dialog .dialog-footer .btn-group {
-                    width: 100% !important;
-                    flex-direction: column !important;
-                    gap: 8px !important;
+                    width 100% !important;
+                    flex-direction column !important;
+                    gap 8px !important;
                 }
                 #settings-dialog .dialog-footer button {
-                    width: 100% !important;
-                    padding: 14px !important;
-                    justify-content: center !important;
+                    width 100% !important;
+                    padding 14px !important;
+                    justify-content center !important;
                 }
             }
-        </style>
+        style
     `;
 
     document.body.appendChild(dialog);
 
-    // 获取所有元素
+     获取所有元素
     const closeBtn = document.getElementById('settings-close-btn');
     const cancelBtn = document.getElementById('settings-cancel-btn');
     const resetBtn = document.getElementById('settings-reset-btn');
     const saveBtn = document.getElementById('settings-save-btn');
     const searchFormInput = document.getElementById('search-form-param-input');
+    const minSearchesInput = document.getElementById('min-searches-input');
     const maxSearchesInput = document.getElementById('max-searches-input');
+    const executionRegionSelect = document.getElementById('execution-region-select');
     const panelStateRadios = document.getElementsByName('panel-default-state');
     const randomAddCheckbox = document.getElementById('random-add-checkbox');
     const randomCutCheckbox = document.getElementById('random-cut-checkbox');
@@ -2934,20 +2913,20 @@ function showSettingsDialog(theme) {
     const appAuthStartBtn = document.getElementById('app-auth-start-btn');
     const appAuthStatusEl = document.getElementById('app-auth-status');
 
-    // APP 设备标识预览：默认单行省略，可展开查看完整 UA（最多 3 行滚动区）
+     APP 设备标识预览：默认单行省略，可展开查看完整 UA（最多 3 行滚动区）
     let uaPreviewExpanded = false;
-    const setUaPreviewExpanded = (expanded) => {
+    const setUaPreviewExpanded = (expanded) = {
         if (!appUaPresetUa) return;
         uaPreviewExpanded = expanded;
         Object.assign(appUaPresetUa.style, expanded
-            ? { whiteSpace: 'normal', overflowWrap: 'anywhere', maxHeight: '48px', overflowY: 'auto', overflowX: 'hidden' }
-            : { whiteSpace: 'nowrap', overflowWrap: 'normal', maxHeight: 'none', overflowY: 'hidden', overflowX: 'hidden' });
-        if (appUaPresetToggle) appUaPresetToggle.textContent = expanded ? '收起 ⌃' : '展开 ⌄';
+             { whiteSpace 'normal', overflowWrap 'anywhere', maxHeight '48px', overflowY 'auto', overflowX 'hidden' }
+             { whiteSpace 'nowrap', overflowWrap 'normal', maxHeight 'none', overflowY 'hidden', overflowX 'hidden' });
+        if (appUaPresetToggle) appUaPresetToggle.textContent = expanded  '收起 ⌃'  '展开 ⌄';
     };
 
-    const renderUaPresetPreview = () => {
-        const preset = APP_CLIENT_PRESETS.find(item => item.id === appUaPresetSelect.value) || APP_CLIENT_PRESETS[0];
-        if (appUaPresetMeta) appUaPresetMeta.textContent = `${preset.label} · ${preset.channel}/${preset.version}`;
+    const renderUaPresetPreview = () = {
+        const preset = APP_CLIENT_PRESETS.find(item = item.id === appUaPresetSelect.value)  APP_CLIENT_PRESETS[0];
+        if (appUaPresetMeta) appUaPresetMeta.textContent = `${preset.label} · ${preset.channel}${preset.version}`;
         if (appUaPresetNote) appUaPresetNote.textContent = preset.note;
         if (appUaPresetUa) {
             appUaPresetUa.textContent = preset.userAgent;
@@ -2957,21 +2936,21 @@ function showSettingsDialog(theme) {
     };
 
     appUaPresetSelect.addEventListener('change', renderUaPresetPreview);
-    if (appUaPresetToggle) appUaPresetToggle.addEventListener('click', () => setUaPreviewExpanded(!uaPreviewExpanded));
-    if (appUaPresetUa) appUaPresetUa.addEventListener('click', () => setUaPreviewExpanded(!uaPreviewExpanded));
+    if (appUaPresetToggle) appUaPresetToggle.addEventListener('click', () = setUaPreviewExpanded(!uaPreviewExpanded));
+    if (appUaPresetUa) appUaPresetUa.addEventListener('click', () = setUaPreviewExpanded(!uaPreviewExpanded));
     renderUaPresetPreview();
 
-    // APP 端授权按钮：打开授权页，落地后由脚本自动捕获授权码并兑换令牌
+     APP 端授权按钮：打开授权页，落地后由脚本自动捕获授权码并兑换令牌
     if (appAuthStartBtn) {
-        appAuthStartBtn.addEventListener('click', () => {
+        appAuthStartBtn.addEventListener('click', () = {
             AppAuth.openAuthorizePage();
         });
     }
 
-    // APP 端授权状态实时刷新：轮询本地令牌，暂存授权码自动补兑换，对话框关闭后停止
+     APP 端授权状态实时刷新：轮询本地令牌，暂存授权码自动补兑换，对话框关闭后停止
     let appAuthExchangeTried = !GM_getValue('appPendingAuthCode', '');
     let appAuthTimer = null;
-    const refreshAppAuthStatus = () => {
+    const refreshAppAuthStatus = () = {
         if (!appAuthStatusEl) return;
         if (!document.getElementById('settings-dialog')) {
             if (appAuthTimer) clearInterval(appAuthTimer);
@@ -2981,8 +2960,8 @@ function showSettingsDialog(theme) {
         const pendingCode = GM_getValue('appPendingAuthCode', '');
         if (refreshToken) {
             const ageText = AppAuth.issueAgeText();
-            appAuthStatusEl.textContent = `✓ 已授权${ageText ? `（${ageText}）` : ''}`;
-            appAuthStatusEl.title = '时间为令牌最近一次签发/续期时间，用于 7 天自动续期判断';
+            appAuthStatusEl.textContent = `✓ 已授权${ageText  `（${ageText}）`  ''}`;
+            appAuthStatusEl.title = '时间为令牌最近一次签发续期时间，用于 7 天自动续期判断';
             appAuthStatusEl.style.background = theme['--panel-success-bg'];
             appAuthStatusEl.style.color = theme['--panel-success-text'];
             appAuthStatusEl.style.border = `1px solid ${theme['--panel-success-text']}40`;
@@ -2994,15 +2973,15 @@ function showSettingsDialog(theme) {
             if (!appAuthExchangeTried) {
                 appAuthExchangeTried = true;
                 GM_setValue('appPendingAuthCode', '');
-                AppAuth.exchangeToken('authorization_code', pendingCode).then(ok => {
-                    GM_log(ok ? 'APP授权：暂存授权码补兑换成功' : 'APP授权：暂存授权码补兑换失败，请重新点击「开始APP授权」');
+                AppAuth.exchangeToken('authorization_code', pendingCode).then(ok = {
+                    GM_log(ok  'APP授权：暂存授权码补兑换成功'  'APP授权：暂存授权码补兑换失败，请重新点击「开始APP授权」');
                     refreshAppAuthStatus();
                 });
             }
         } else {
             const lastError = GM_getValue('appAuthLastError', '');
-            appAuthStatusEl.textContent = lastError ? `⚠️ 未授权：${lastError}` : '⚠️ 未授权';
-            appAuthStatusEl.title = lastError || '点击「开始APP授权」完成授权';
+            appAuthStatusEl.textContent = lastError  `⚠️ 未授权：${lastError}`  '⚠️ 未授权';
+            appAuthStatusEl.title = lastError  '点击「开始APP授权」完成授权';
             appAuthStatusEl.style.background = theme['--panel-warning-bg'];
             appAuthStatusEl.style.color = theme['--panel-warning-text'];
             appAuthStatusEl.style.border = `1px solid ${theme['--panel-warning-color']}40`;
@@ -3011,16 +2990,16 @@ function showSettingsDialog(theme) {
     refreshAppAuthStatus();
     appAuthTimer = setInterval(refreshAppAuthStatus, 1500);
 
-    // 搜索相关元素
+     搜索相关元素
     const searchInput = document.getElementById('settings-search-input');
     const clearSearchBtn = document.getElementById('clear-search-btn');
 
-    // 配置管理相关元素
+     配置管理相关元素
     const exportConfigBtn = document.getElementById('export-config-btn');
     const importConfigBtn = document.getElementById('import-config-btn');
     const configFileInput = document.getElementById('config-file-input');
 
-    const closeDialog = () => {
+    const closeDialog = () = {
         if (appAuthTimer) clearInterval(appAuthTimer);
         dialog.remove();
         document.removeEventListener('keydown', handleEsc);
@@ -3029,37 +3008,37 @@ function showSettingsDialog(theme) {
     closeBtn.addEventListener('click', closeDialog);
     cancelBtn.addEventListener('click', closeDialog);
 
-    // 点击背景关闭
-    dialog.querySelector('div').addEventListener('click', (e) => {
+     点击背景关闭
+    dialog.querySelector('div').addEventListener('click', (e) = {
         if (e.target === dialog.querySelector('div')) {
             closeDialog();
         }
     });
 
-    // 设置项搜索功能
-    const filterSettingsByKeyword = (keyword) => {
+     设置项搜索功能
+    const filterSettingsByKeyword = (keyword) = {
         const sections = dialog.querySelectorAll('.config-section');
         let foundCount = 0;
 
-        sections.forEach(section => {
+        sections.forEach(section = {
             const sectionTitle = section.getAttribute('data-section');
             const searchTags = section.querySelectorAll('[data-search-tags]');
             let shouldShow = false;
 
-            // 检查section标题是否匹配
+             检查section标题是否匹配
             if (sectionTitle && sectionTitle.toLowerCase().includes(keyword.toLowerCase())) {
                 shouldShow = true;
             }
 
-            // 检查各个设置项的搜索标签
-            searchTags.forEach(tagElement => {
+             检查各个设置项的搜索标签
+            searchTags.forEach(tagElement = {
                 const tags = tagElement.getAttribute('data-search-tags');
                 if (tags && tags.toLowerCase().includes(keyword.toLowerCase())) {
                     shouldShow = true;
                 }
             });
 
-            // 检查section内的文本内容
+             检查section内的文本内容
             if (!shouldShow) {
                 const textContent = section.textContent.toLowerCase();
                 if (textContent.includes(keyword.toLowerCase())) {
@@ -3070,7 +3049,7 @@ function showSettingsDialog(theme) {
             if (shouldShow) {
                 section.style.display = 'block';
                 foundCount++;
-                // 确保匹配的section是展开状态
+                 确保匹配的section是展开状态
                 const content = section.querySelector('.section-content');
                 if (content) {
                     content.style.maxHeight = '1000px';
@@ -3085,42 +3064,42 @@ function showSettingsDialog(theme) {
             }
         });
 
-        // 显示搜索结果提示
+         显示搜索结果提示
         const searchResultsHint = document.getElementById('search-results-hint');
         if (keyword.trim()) {
             if (!searchResultsHint) {
                 const hint = document.createElement('div');
                 hint.id = 'search-results-hint';
                 hint.style.cssText = `
-                    padding: 12px 16px;
-                    background: ${theme['--panel-info-bg']};
-                    border-radius: 10px;
-                    margin-bottom: 16px;
-                    font-size: 12px;
-                    color: ${theme['--panel-text-muted']};
-                    display: flex;
-                    align-items: center;
-                    gap: 8px;
+                    padding 12px 16px;
+                    background ${theme['--panel-info-bg']};
+                    border-radius 10px;
+                    margin-bottom 16px;
+                    font-size 12px;
+                    color ${theme['--panel-text-muted']};
+                    display flex;
+                    align-items center;
+                    gap 8px;
                 `;
-                hint.innerHTML = `<span>🔍</span>找到 <strong style="color:${theme['--panel-primary-color']};">${foundCount}</strong> 个匹配的设置项`;
+                hint.innerHTML = `span🔍span找到 strong style=color${theme['--panel-primary-color']};${foundCount}strong 个匹配的设置项`;
                 dialog.querySelector('.dialog-content').insertBefore(hint, dialog.querySelector('.dialog-content').firstChild);
             } else {
-                searchResultsHint.innerHTML = `<span>🔍</span>找到 <strong style="color:${theme['--panel-primary-color']};">${foundCount}</strong> 个匹配的设置项`;
+                searchResultsHint.innerHTML = `span🔍span找到 strong style=color${theme['--panel-primary-color']};${foundCount}strong 个匹配的设置项`;
             }
         } else if (searchResultsHint) {
             searchResultsHint.remove();
         }
     };
 
-    // 导航切换逻辑
+     导航切换逻辑
     const navSettingsBtn = document.getElementById('nav-settings-btn');
     const navAboutBtn = document.getElementById('nav-about-btn');
-    const settingsContent = dialog.querySelector('.dialog-content:not(#about-content)');
+    const settingsContent = dialog.querySelector('.dialog-contentnot(#about-content)');
     const aboutContent = document.getElementById('about-content');
     const searchWrapper = document.getElementById('search-wrapper');
     const dialogFooter = dialog.querySelector('.dialog-footer');
 
-    const switchToSettings = () => {
+    const switchToSettings = () = {
         navSettingsBtn.classList.add('active');
         navSettingsBtn.style.background = theme['--panel-primary-color'];
         navSettingsBtn.style.color = '#ffffff';
@@ -3133,13 +3112,13 @@ function showSettingsDialog(theme) {
         searchWrapper.style.display = 'block';
         dialogFooter.style.display = 'flex';
 
-        // 清除搜索
+         清除搜索
         searchInput.value = '';
         clearSearchBtn.style.display = 'none';
         filterSettingsByKeyword('');
     };
 
-    const switchToAbout = () => {
+    const switchToAbout = () = {
         navAboutBtn.classList.add('active');
         navAboutBtn.style.background = theme['--panel-primary-color'];
         navAboutBtn.style.color = '#ffffff';
@@ -3156,29 +3135,29 @@ function showSettingsDialog(theme) {
     navSettingsBtn.addEventListener('click', switchToSettings);
     navAboutBtn.addEventListener('click', switchToAbout);
 
-    searchInput.addEventListener('input', (e) => {
+    searchInput.addEventListener('input', (e) = {
         const keyword = e.target.value;
         filterSettingsByKeyword(keyword);
 
-        // 显示/隐藏清除按钮
-        clearSearchBtn.style.display = keyword.trim() ? 'block' : 'none';
+         显示隐藏清除按钮
+        clearSearchBtn.style.display = keyword.trim()  'block'  'none';
     });
 
-    clearSearchBtn.addEventListener('click', () => {
+    clearSearchBtn.addEventListener('click', () = {
         searchInput.value = '';
         clearSearchBtn.style.display = 'none';
         filterSettingsByKeyword('');
     });
 
-    // 设置分组折叠/展开功能
+     设置分组折叠展开功能
     const sectionHeaders = dialog.querySelectorAll('.section-header');
-    sectionHeaders.forEach(header => {
-        header.addEventListener('click', () => {
+    sectionHeaders.forEach(header = {
+        header.addEventListener('click', () = {
             const section = header.closest('.config-section');
             const content = section.querySelector('.section-content');
             const toggle = section.querySelector('.section-toggle');
 
-            if (content.style.maxHeight === '0px' || !content.style.maxHeight) {
+            if (content.style.maxHeight === '0px'  !content.style.maxHeight) {
                 content.style.maxHeight = '1000px';
                 content.style.opacity = '1';
                 toggle.style.transform = 'rotate(0deg)';
@@ -3190,17 +3169,17 @@ function showSettingsDialog(theme) {
         });
     });
 
-    // 配置导出功能
-    exportConfigBtn.addEventListener('click', () => {
-        // 导出全部用户可配置参数（以 CONFIG_SCHEMA 为准）
+     配置导出功能
+    exportConfigBtn.addEventListener('click', () = {
+         导出全部用户可配置参数（以 CONFIG_SCHEMA 为准）
         const config = {};
-        Object.keys(CONFIG_SCHEMA).forEach(name => {
+        Object.keys(CONFIG_SCHEMA).forEach(name = {
             config[name] = CONFIG[name];
         });
         config.exportTime = new Date().toISOString();
         config.version = CONFIG.version;
 
-        const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type 'applicationjson' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
@@ -3211,139 +3190,139 @@ function showSettingsDialog(theme) {
         URL.revokeObjectURL(url);
 
         GM_notification({
-            title: '配置导出成功',
-            text: '配置文件已保存到本地',
-            timeout: 3000
+            title '配置导出成功',
+            text '配置文件已保存到本地',
+            timeout 3000
         });
     });
 
-    // 配置导入功能
-    importConfigBtn.addEventListener('click', () => {
+     配置导入功能
+    importConfigBtn.addEventListener('click', () = {
         configFileInput.click();
     });
 
-    configFileInput.addEventListener('change', (e) => {
+    configFileInput.addEventListener('change', (e) = {
         const file = e.target.files[0];
         if (!file) return;
 
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = (event) = {
             try {
                 const config = JSON.parse(event.target.result);
 
-                // 确认导入
-                if (!confirm(`⚠️ 确认导入配置文件？\n\n这将覆盖当前所有设置。\n\n导入时间: ${config.exportTime || '未知'}\n版本: ${config.version || '未知'}`)) {
+                 确认导入
+                if (!confirm(`⚠️ 确认导入配置文件？nn这将覆盖当前所有设置。nn导入时间 ${config.exportTime  '未知'}n版本 ${config.version  '未知'}`)) {
                     return;
                 }
 
-                // 保存配置（以 CONFIG_SCHEMA 为准，仅导入文件中存在的键）
-                Object.keys(CONFIG_SCHEMA).forEach(name => {
+                 保存配置（以 CONFIG_SCHEMA 为准，仅导入文件中存在的键）
+                Object.keys(CONFIG_SCHEMA).forEach(name = {
                     if (config[name] !== undefined) CONFIG[name] = config[name];
                 });
 
                 GM_notification({
-                    title: '配置导入成功',
-                    text: '配置已成功导入，页面将刷新',
-                    timeout: 3000
+                    title '配置导入成功',
+                    text '配置已成功导入，页面将刷新',
+                    timeout 3000
                 });
 
                 closeDialog();
-                setTimeout(() => window.location.reload(), 2000);
+                setTimeout(() = window.location.reload(), 2000);
 
             } catch (error) {
                 alert('❌ 配置文件格式错误，请确保导入的是有效的JSON配置文件');
-                log(`配置导入失败: ${error.message}`);
+                log(`配置导入失败 ${error.message}`);
             }
         };
         reader.readAsText(file);
     });
 
-    // 添加关闭按钮悬停效果
+     添加关闭按钮悬停效果
     addButtonHoverEffects(closeBtn, {
-        enter: { backgroundColor: theme['--panel-hover-bg'], color: theme['--panel-primary-color'], transform: 'scale(1.1) rotate(90deg)' },
-        leave: { backgroundColor: 'transparent', color: theme['--panel-text-secondary'], transform: 'scale(1) rotate(0deg)' },
-        down: { transform: 'scale(0.95) rotate(90deg)' },
-        up: { transform: 'scale(1.1) rotate(90deg)' }
+        enter { backgroundColor theme['--panel-hover-bg'], color theme['--panel-primary-color'], transform 'scale(1.1) rotate(90deg)' },
+        leave { backgroundColor 'transparent', color theme['--panel-text-secondary'], transform 'scale(1) rotate(0deg)' },
+        down { transform 'scale(0.95) rotate(90deg)' },
+        up { transform 'scale(1.1) rotate(90deg)' }
     });
 
-    // 按钮悬停和点击效果
+     按钮悬停和点击效果
     const buttons = [
-        { btn: resetBtn, hoverBg: theme['--panel-hover-bg'], hoverBorder: theme['--panel-primary-color'] },
-        { btn: cancelBtn, hoverBg: theme['--panel-hover-bg'], hoverBorder: theme['--panel-primary-color'] },
-        { btn: saveBtn, hoverShadow: `0 8px 28px ${theme['--panel-primary-color']}70` }
+        { btn resetBtn, hoverBg theme['--panel-hover-bg'], hoverBorder theme['--panel-primary-color'] },
+        { btn cancelBtn, hoverBg theme['--panel-hover-bg'], hoverBorder theme['--panel-primary-color'] },
+        { btn saveBtn, hoverShadow `0 8px 28px ${theme['--panel-primary-color']}70` }
     ];
 
-    buttons.forEach(({ btn, hoverBg, hoverBorder, hoverShadow }) => {
+    buttons.forEach(({ btn, hoverBg, hoverBorder, hoverShadow }) = {
         if (!btn) return;
 
-        btn.addEventListener('mouseenter', () => {
+        btn.addEventListener('mouseenter', () = {
             btn.style.transform = 'translateY(-2px)';
             if (hoverBg) btn.style.backgroundColor = hoverBg;
             if (hoverBorder) btn.style.borderColor = hoverBorder;
             if (hoverShadow) btn.style.boxShadow = hoverShadow;
         });
 
-        btn.addEventListener('mouseleave', () => {
+        btn.addEventListener('mouseleave', () = {
             btn.style.transform = 'translateY(0)';
-            if (hoverBg) btn.style.backgroundColor = btn.id === 'settings-save-btn' ? '' : 'transparent';
+            if (hoverBg) btn.style.backgroundColor = btn.id === 'settings-save-btn'  ''  'transparent';
             if (hoverBorder) btn.style.borderColor = theme['--panel-border'];
-            if (hoverShadow) btn.style.boxShadow = btn.id === 'settings-save-btn' ? `0 6px 20px ${theme['--panel-primary-color']}50` : 'none';
+            if (hoverShadow) btn.style.boxShadow = btn.id === 'settings-save-btn'  `0 6px 20px ${theme['--panel-primary-color']}50`  'none';
         });
 
-        btn.addEventListener('mousedown', () => {
+        btn.addEventListener('mousedown', () = {
             btn.style.transform = 'translateY(1px) scale(0.98)';
         });
 
-        btn.addEventListener('mouseup', () => {
+        btn.addEventListener('mouseup', () = {
             btn.style.transform = 'translateY(-2px)';
         });
 
-        // 添加点击波纹效果
+         添加点击波纹效果
         btn.addEventListener('click', function(e) {
             const ripple = document.createElement('span');
             const rect = this.getBoundingClientRect();
             const size = Math.max(rect.width, rect.height);
-            const x = e.clientX - rect.left - size / 2;
-            const y = e.clientY - rect.top - size / 2;
+            const x = e.clientX - rect.left - size  2;
+            const y = e.clientY - rect.top - size  2;
 
             ripple.style.cssText = `
-                position: absolute;
-                width: ${size}px;
-                height: ${size}px;
-                left: ${x}px;
-                top: ${y}px;
-                background: radial-gradient(circle, ${theme['--panel-primary-color']}40 0%, transparent 70%);
-                border-radius: 50%;
-                transform: scale(0);
-                animation: buttonRipple 0.6s ease-out;
-                pointer-events: none;
+                position absolute;
+                width ${size}px;
+                height ${size}px;
+                left ${x}px;
+                top ${y}px;
+                background radial-gradient(circle, ${theme['--panel-primary-color']}40 0%, transparent 70%);
+                border-radius 50%;
+                transform scale(0);
+                animation buttonRipple 0.6s ease-out;
+                pointer-events none;
             `;
 
             this.appendChild(ripple);
-            setTimeout(() => ripple.remove(), 600);
+            setTimeout(() = ripple.remove(), 600);
         });
     });
 
-    // 输入框焦点效果
+     输入框焦点效果
     [searchFormInput, maxSearchesInput, randomAddFactorInput, randomCutFactorInput,
      pauseIntervalMinInput, pauseIntervalMaxInput, pauseTimeMinInput, pauseTimeMaxInput,
-     minDelayInput, maxDelayInput].forEach(input => {
-        input.addEventListener('focus', () => {
+     minDelayInput, maxDelayInput].forEach(input = {
+        input.addEventListener('focus', () = {
             input.style.borderColor = theme['--panel-primary-color'];
             input.style.boxShadow = `0 0 0 3px ${theme['--panel-primary-color']}20`;
         });
-        input.addEventListener('blur', () => {
+        input.addEventListener('blur', () = {
             input.style.borderColor = theme['--panel-border'];
             input.style.boxShadow = 'none';
         });
     });
 
-    // 卡片（单选/复选）选中态统一渲染：边框、背景与右上角标记，消除重复分支
-    // marker：'check'=勾选圆标（单选卡片），'badge'=「已启用」标记（复选卡片）
-    const applyCardState = (label, checked, { checkedBg, idleBg, marker }) => {
+     卡片（单选复选）选中态统一渲染：边框、背景与右上角标记，消除重复分支
+     marker：'check'=勾选圆标（单选卡片），'badge'=「已启用」标记（复选卡片）
+    const applyCardState = (label, checked, { checkedBg, idleBg, marker }) = {
         if (!label) return;
-        label.style.borderColor = checked ? theme['--panel-primary-color'] : theme['--panel-border'];
-        label.style.background = checked ? checkedBg : idleBg;
+        label.style.borderColor = checked  theme['--panel-primary-color']  theme['--panel-border'];
+        label.style.background = checked  checkedBg  idleBg;
 
         const oldMarker = label.querySelector('.badge, .checkmark');
         if (oldMarker) oldMarker.remove();
@@ -3352,84 +3331,85 @@ function showSettingsDialog(theme) {
         const el = document.createElement('div');
         if (marker === 'check') {
             el.className = 'checkmark';
-            el.style.cssText = `position:absolute;top:8px;right:8px;width:20px;height:20px;border-radius:50%;background:${theme['--panel-primary-color']};display:flex;align-items:center;justify-content:center;pointer-events:none;`;
-            el.innerHTML = '<span style="color:#fff;font-size:12px;font-weight:bold;line-height:1;">✓</span>';
+            el.style.cssText = `positionabsolute;top8px;right8px;width20px;height20px;border-radius50%;background${theme['--panel-primary-color']};displayflex;align-itemscenter;justify-contentcenter;pointer-eventsnone;`;
+            el.innerHTML = 'span style=color#fff;font-size12px;font-weightbold;line-height1;✓span';
         } else {
             el.className = 'badge';
-            el.style.cssText = `position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:${theme['--panel-primary-color']};color:#fff;font-size:10px;font-weight:700;`;
+            el.style.cssText = `positionabsolute;top10px;right10px;padding3px 8px;border-radius6px;background${theme['--panel-primary-color']};color#fff;font-size10px;font-weight700;`;
             el.textContent = '已启用';
         }
         label.appendChild(el);
     };
 
-    // Radio 按钮样式更新（初始化与切换共用同一套渲染）
-    const refreshPanelStateCards = () => {
-        Array.from(panelStateRadios).forEach(radio => {
-            const accent = radio.value === 'expanded' ? theme['--panel-success-bg'] : theme['--panel-info-bg'];
+     Radio 按钮样式更新（初始化与切换共用同一套渲染）
+    const refreshPanelStateCards = () = {
+        Array.from(panelStateRadios).forEach(radio = {
+            const accent = radio.value === 'expanded'  theme['--panel-success-bg']  theme['--panel-info-bg'];
             applyCardState(radio.closest('label'), radio.checked, {
-                checkedBg: `linear-gradient(135deg,${accent},${theme['--panel-hover-bg']})`,
-                idleBg: theme['--panel-bg'],
-                marker: 'check'
+                checkedBg `linear-gradient(135deg,${accent},${theme['--panel-hover-bg']})`,
+                idleBg theme['--panel-bg'],
+                marker 'check'
             });
         });
     };
 
-    Array.from(panelStateRadios).forEach(radio => {
+    Array.from(panelStateRadios).forEach(radio = {
         const label = radio.closest('label');
         radio.addEventListener('change', refreshPanelStateCards);
 
-        // 添加悬停效果
-        label.addEventListener('mouseenter', () => {
+         添加悬停效果
+        label.addEventListener('mouseenter', () = {
             if (!radio.checked) {
                 label.style.transform = 'translateY(-2px)';
                 label.style.boxShadow = `0 4px 12px ${theme['--panel-shadow']}`;
             }
         });
-        label.addEventListener('mouseleave', () => {
+        label.addEventListener('mouseleave', () = {
             label.style.transform = 'translateY(0)';
             label.style.boxShadow = 'none';
         });
     });
     refreshPanelStateCards();
 
-    // Checkbox 卡片样式更新（强调色由 label 的 data-accent 决定，默认 info）
-    [randomAddCheckbox, randomCutCheckbox, clickSearchResultsCheckbox, autoClickTasksCheckbox, appCheckInCheckbox, appReadCheckbox].forEach(checkbox => {
+     Checkbox 卡片样式更新（强调色由 label 的 data-accent 决定，默认 info）
+    [randomAddCheckbox, randomCutCheckbox, clickSearchResultsCheckbox, autoClickTasksCheckbox, appCheckInCheckbox, appReadCheckbox].forEach(checkbox = {
         const label = checkbox && checkbox.closest('label');
         if (!label) return;
-        const accent = label.dataset.accent === 'success' ? theme['--panel-success-bg'] : theme['--panel-info-bg'];
+        const accent = label.dataset.accent === 'success'  theme['--panel-success-bg']  theme['--panel-info-bg'];
 
-        checkbox.addEventListener('change', () => {
+        checkbox.addEventListener('change', () = {
             applyCardState(label, checkbox.checked, {
-                checkedBg: `linear-gradient(135deg,${accent},transparent)`,
-                idleBg: theme['--panel-hover-bg'],
-                marker: 'badge'
+                checkedBg `linear-gradient(135deg,${accent},transparent)`,
+                idleBg theme['--panel-hover-bg'],
+                marker 'badge'
             });
         });
 
-        // 添加悬停效果
-        label.addEventListener('mouseenter', () => {
+         添加悬停效果
+        label.addEventListener('mouseenter', () = {
             label.style.transform = 'translateY(-2px)';
             label.style.boxShadow = `0 4px 16px ${theme['--panel-shadow']}`;
         });
-        label.addEventListener('mouseleave', () => {
+        label.addEventListener('mouseleave', () = {
             label.style.transform = 'translateY(0)';
             label.style.boxShadow = 'none';
         });
     });
 
-    // 恢复默认按钮
-    resetBtn.addEventListener('click', () => {
-        // 确认恢复默认设置
-        if (!confirm('⚠️ 确认恢复所有设置为默认值？\n\n此操作将清除您所有的自定义设置，请确保已备份配置。')) {
+     恢复默认按钮
+    resetBtn.addEventListener('click', () = {
+         确认恢复默认设置
+        if (!confirm('⚠️ 确认恢复所有设置为默认值？nn此操作将清除您所有的自定义设置，请确保已备份配置。')) {
             return;
         }
 
         searchFormInput.value = 'QBLH';
-        // 设置面板状态为展开
-        Array.from(panelStateRadios).forEach(r => {
+         设置面板状态为展开
+        Array.from(panelStateRadios).forEach(r = {
             r.checked = r.value === 'expanded';
             r.dispatchEvent(new Event('change'));
         });
+        minSearchesInput.value = 15;
         maxSearchesInput.value = 20;
         randomAddCheckbox.checked = false;
         randomAddFactorInput.value = 0.3;
@@ -3453,7 +3433,7 @@ function showSettingsDialog(theme) {
         appUaPresetSelect.value = APP_CLIENT_DEFAULT_PRESET;
         renderUaPresetPreview();
 
-        // 触发checkbox样式更新
+         触发checkbox样式更新
         randomAddCheckbox.dispatchEvent(new Event('change'));
         randomCutCheckbox.dispatchEvent(new Event('change'));
         clickSearchResultsCheckbox.dispatchEvent(new Event('change'));
@@ -3462,10 +3442,12 @@ function showSettingsDialog(theme) {
         appReadCheckbox.dispatchEvent(new Event('change'));
     });
 
-    saveBtn.addEventListener('click', () => {
+    saveBtn.addEventListener('click', () = {
         const searchFormParam = searchFormInput.value.trim();
+        const minSearches = parseInt(minSearchesInput.value);
         const maxSearches = parseInt(maxSearchesInput.value);
-        const panelDefaultCollapsed = Array.from(panelStateRadios).find(r => r.checked).value === 'collapsed';
+        const executionRegion = executionRegionSelect.value;
+        const panelDefaultCollapsed = Array.from(panelStateRadios).find(r = r.checked).value === 'collapsed';
         const randomAdd = randomAddCheckbox.checked;
         const randomAddFactor = parseFloat(randomAddFactorInput.value);
         const randomCut = randomCutCheckbox.checked;
@@ -3473,10 +3455,10 @@ function showSettingsDialog(theme) {
         const clickSearchResults = clickSearchResultsCheckbox.checked;
         const pauseIntervalMin = parseInt(pauseIntervalMinInput.value);
         const pauseIntervalMax = parseInt(pauseIntervalMaxInput.value);
-        const pauseTimeMin = parseFloat(pauseTimeMinInput.value) * 60 * 1000; // 转换为毫秒
-        const pauseTimeMax = parseFloat(pauseTimeMaxInput.value) * 60 * 1000; // 转换为毫秒
-        const minDelay = parseFloat(minDelayInput.value) * 1000; // 转换为毫秒
-        const maxDelay = parseFloat(maxDelayInput.value) * 1000; // 转换为毫秒
+        const pauseTimeMin = parseFloat(pauseTimeMinInput.value)  60  1000;  转换为毫秒
+        const pauseTimeMax = parseFloat(pauseTimeMaxInput.value)  60  1000;  转换为毫秒
+        const minDelay = parseFloat(minDelayInput.value)  1000;  转换为毫秒
+        const maxDelay = parseFloat(maxDelayInput.value)  1000;  转换为毫秒
         const tasksScrollDelay = parseInt(tasksScrollDelayInput.value);
         const tasksMaxRetries = parseInt(tasksMaxRetriesInput.value);
         const tasksRetryDelay = parseInt(tasksRetryDelayInput.value);
@@ -3487,67 +3469,76 @@ function showSettingsDialog(theme) {
         const appReadDailyLimit = parseInt(appReadLimitInput.value);
         const appUaPreset = appUaPresetSelect.value;
 
-        // 验证
+         验证
         if (!searchFormParam) {
             alert('❌ 请输入有效的搜索表单参数!');
             return;
         }
-        if (maxSearches < 1 || maxSearches > 50) {
-            alert('❌ 最大搜索次数应在 1-50 之间!');
+        if (!Number.isInteger(minSearches)  !Number.isInteger(maxSearches)  minSearches  1  maxSearches  50  minSearches  maxSearches) {
+            alert('❌ 搜索次数范围应为 1-50，且最小值不能大于最大值!');
             return;
         }
-        if (randomAddFactor < 0 || randomAddFactor > 1) {
+        if (!Object.hasOwn(EXECUTION_REGIONS, executionRegion)) {
+            alert('❌ 执行地区无效，请重新选择!');
+            return;
+        }
+        if (randomAddFactor  0  randomAddFactor  1) {
             alert('❌ 加词因子应在 0-1 之间!');
             return;
         }
-        if (randomCutFactor < 0 || randomCutFactor > 1) {
+        if (randomCutFactor  0  randomCutFactor  1) {
             alert('❌ 截词因子应在 0-1 之间!');
             return;
         }
-        if (pauseIntervalMin < 1 || pauseIntervalMax < pauseIntervalMin) {
+        if (pauseIntervalMin  1  pauseIntervalMax  pauseIntervalMin) {
             alert('❌ 暂停间隔设置不合理!');
             return;
         }
-        if (pauseTimeMin < 60000 || pauseTimeMax < pauseTimeMin) {
+        if (pauseTimeMin  60000  pauseTimeMax  pauseTimeMin) {
             alert('❌ 暂停时间设置不合理!');
             return;
         }
-        if (minDelay < 5000 || maxDelay < minDelay) {
+        if (minDelay  5000  maxDelay  minDelay) {
             alert('❌ 搜索延迟设置不合理!');
             return;
         }
-        if (tasksScrollDelay < 1000 || tasksScrollDelay > 10000) {
+        if (tasksScrollDelay  1000  tasksScrollDelay  10000) {
             alert('❌ 任务滚动等待时间应在 1000-10000 毫秒之间!');
             return;
         }
-        if (tasksMaxRetries < 0 || tasksMaxRetries > 3) {
+        if (tasksMaxRetries  0  tasksMaxRetries  3) {
             alert('❌ 任务最大重试次数应在 0-3 之间!');
             return;
         }
-        if (tasksRetryDelay < 500 || tasksRetryDelay > 10000) {
+        if (tasksRetryDelay  500  tasksRetryDelay  10000) {
             alert('❌ 任务重试延迟应在 500-10000 毫秒之间!');
             return;
         }
-        if (tasksCloseTabDelay < 1000 || tasksCloseTabDelay > 30000) {
+        if (tasksCloseTabDelay  1000  tasksCloseTabDelay  30000) {
             alert('❌ 任务关闭延迟应在 1000-30000 毫秒之间!');
             return;
         }
-        if (appReadDailyLimit < 1 || appReadDailyLimit > 30) {
+        if (appReadDailyLimit  1  appReadDailyLimit  30) {
             alert('❌ 每日阅读上限应在 1-30 篇之间!');
             return;
         }
-        if (!APP_CLIENT_PRESETS.some(preset => preset.id === appUaPreset)) {
+        if (!APP_CLIENT_PRESETS.some(preset = preset.id === appUaPreset)) {
             alert('❌ APP 设备标识无效，请重新选择!');
             return;
         }
 
-        // 设置变更确认机制
-        if (!confirm('⚠️ 确认保存设置变更？\n\n保存后页面将自动刷新以应用新配置。')) {
+         设置变更确认机制
+        if (!confirm('⚠️ 确认保存设置变更？nn保存后页面将自动刷新以应用新配置。')) {
             return;
         }
 
-        // 保存所有配置（经 CONFIG setter 写入对应的 GM 存储键）
+         保存所有配置（经 CONFIG setter 写入对应的 GM 存储键）
         CONFIG.searchFormParam = searchFormParam;
+        CONFIG.minSearches = minSearches;
+        CONFIG.executionRegion = executionRegion;
+         地区切换后不沿用此前地区的热词缓存。
+        GM_deleteValue(`cache_search_words_${executionRegion}`);
+        GM_deleteValue(`cache_search_words_${EXECUTION_REGIONS[executionRegion].country.toLowerCase()}_v2`);
         CONFIG.panelDefaultCollapsed = panelDefaultCollapsed;
         CONFIG.maxSearches = maxSearches;
         CONFIG.randomAddSearchWords = randomAdd;
@@ -3571,20 +3562,20 @@ function showSettingsDialog(theme) {
         CONFIG.appReadDailyLimit = appReadDailyLimit;
         CONFIG.appUaPreset = appUaPreset;
 
-        // 显示成功提示
+         显示成功提示
         alert('✅ 配置已保存！确认后页面将在3秒后刷新以应用新配置...');
 
-        // 关闭对话框
+         关闭对话框
         closeDialog();
 
-        // 延迟刷新页面
-        setTimeout(() => {
+         延迟刷新页面
+        setTimeout(() = {
             window.location.reload();
         }, 3000);
     });
 
-    // ESC键关闭
-    const handleEsc = (e) => {
+     ESC键关闭
+    const handleEsc = (e) = {
         if (e.key === 'Escape') {
             closeDialog();
         }
@@ -3592,95 +3583,95 @@ function showSettingsDialog(theme) {
     document.addEventListener('keydown', handleEsc);
 }
 
-/**
- * 生成任务状态摘要行：APP签到 / APP阅读 / 日常任务 / 每日活动 单行 4 列显示
- * 位于搜索进度上方；APP 任务状态读内存，任务点击状态直接读 GM 存储（跨标签页共享）
- */
+
+  生成任务状态摘要行：APP签到  APP阅读  日常任务  每日活动 单行 4 列显示
+  位于搜索进度上方；APP 任务状态读内存，任务点击状态直接读 GM 存储（跨标签页共享）
+ 
 function getTaskSummaryPanelHtml() {
     if (!CONFIG.appCheckInEnabled && !CONFIG.appReadEnabled && !CONFIG.autoClickTasks) return '';
 
-    // 未授权：内存标记待授权，或本地既无令牌也无刷新令牌（从未授权/凭据已清除）
-    const authPending = state.appTasks.authRequired ||
+     未授权：内存标记待授权，或本地既无令牌也无刷新令牌（从未授权凭据已清除）
+    const authPending = state.appTasks.authRequired 
         (!state.appToken && !GM_getValue('appRefreshToken', ''));
 
-    const colStyle = 'flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;min-width:0;';
-    const labelStyle = 'color:var(--panel-text-secondary,#666);font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;';
-    const pill = (text, color, bg) =>
-        `<span style="font-weight:600;font-size:11px;padding:2px 8px;border-radius:10px;color:${color};background:${bg};white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis;">${text}</span>`;
-    const pillWarn = () => pill('待授权', 'var(--panel-warning-text,#8a6900)', 'var(--panel-warning-bg,#fff8e6)');
-    const pillMuted = () => pillSkipped('待执行');
-    const pillSkipped = (text) => pill(text, 'var(--panel-text-muted,#999)', 'var(--panel-hover-bg,#f5f5f5)');
-    const pillSuccess = (text) => pill(text, 'var(--panel-success-text,#107c10)', 'var(--panel-success-bg,#f0f9f0)');
+    const colStyle = 'flex1;displayflex;flex-directioncolumn;align-itemscenter;gap4px;min-width0;';
+    const labelStyle = 'colorvar(--panel-text-secondary,#666);font-size11px;font-weight500;white-spacenowrap;overflowhidden;text-overflowellipsis;max-width100%;';
+    const pill = (text, color, bg) =
+        `span style=font-weight600;font-size11px;padding2px 8px;border-radius10px;color${color};background${bg};white-spacenowrap;max-width100%;overflowhidden;text-overflowellipsis;${text}span`;
+    const pillWarn = () = pill('待授权', 'var(--panel-warning-text,#8a6900)', 'var(--panel-warning-bg,#fff8e6)');
+    const pillMuted = () = pillSkipped('待执行');
+    const pillSkipped = (text) = pill(text, 'var(--panel-text-muted,#999)', 'var(--panel-hover-bg,#f5f5f5)');
+    const pillSuccess = (text) = pill(text, 'var(--panel-success-text,#107c10)', 'var(--panel-success-bg,#f0f9f0)');
 
     const cols = [];
 
-    // 完成态一律优先于授权态：当日已签/已读时，即使令牌失效也照常展示已得积分
+     完成态一律优先于授权态：当日已签已读时，即使令牌失效也照常展示已得积分
     if (CONFIG.appCheckInEnabled) {
         let value;
         if (state.appTasks.checkInDone) {
-            // 内存未同步时回退落盘结果，避免短暂显示为无积分
-            const points = state.appTasks.checkInPoints || AppTaskRunner.getCheckInResult().points;
-            value = pillSuccess(points > 0 ? `✓ +${points}分` : '✓ 已签');
+             内存未同步时回退落盘结果，避免短暂显示为无积分
+            const points = state.appTasks.checkInPoints  AppTaskRunner.getCheckInResult().points;
+            value = pillSuccess(points  0  `✓ +${points}分`  '✓ 已签');
         } else if (authPending) {
             value = pillWarn();
         } else {
             value = pillMuted();
         }
-        cols.push(`<div style="${colStyle}"><span style="${labelStyle}">📱 APP签到</span>${value}</div>`);
+        cols.push(`div style=${colStyle}span style=${labelStyle}📱 APP签到span${value}div`);
     }
 
     if (CONFIG.appReadEnabled) {
         let value;
-        if (state.appTasks.readDone || (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal)) {
-            // 缓存缺失（readTotal=0）时降级为通用文案，避免出现矛盾的"✓ 0/30分"
-            value = state.appTasks.readTotal > 0 && state.appTasks.readCurrent > 0
-                ? pillSuccess(`✓ ${state.appTasks.readCurrent}/${state.appTasks.readTotal}分`)
-                : pillSuccess('✓ 已完成');
+        if (state.appTasks.readDone  (state.appTasks.readTotal  0 && state.appTasks.readCurrent = state.appTasks.readTotal)) {
+             缓存缺失（readTotal=0）时降级为通用文案，避免出现矛盾的✓ 030分
+            value = state.appTasks.readTotal  0 && state.appTasks.readCurrent  0
+                 pillSuccess(`✓ ${state.appTasks.readCurrent}${state.appTasks.readTotal}分`)
+                 pillSuccess('✓ 已完成');
         } else if (authPending) {
             value = pillWarn();
-        } else if (state.appTasks.readTotal > 0) {
-            value = pill(`${state.appTasks.readCurrent}/${state.appTasks.readTotal}分`, 'var(--panel-primary-color,#0067b8)', 'var(--panel-info-bg,#f0f7ff)');
+        } else if (state.appTasks.readTotal  0) {
+            value = pill(`${state.appTasks.readCurrent}${state.appTasks.readTotal}分`, 'var(--panel-primary-color,#0067b8)', 'var(--panel-info-bg,#f0f7ff)');
         } else {
             value = pillMuted();
         }
-        cols.push(`<div style="${colStyle}"><span style="${labelStyle}">📰 APP阅读</span>${value}</div>`);
+        cols.push(`div style=${colStyle}span style=${labelStyle}📰 APP阅读span${value}div`);
     }
 
     if (CONFIG.autoClickTasks) {
         const flows = [
-            { name: 'earn', label: '🖱️ 日常任务' },
-            { name: 'dashboard', label: '📅 每日活动' }
+            { name 'earn', label '🖱️ 日常任务' },
+            { name 'dashboard', label '📅 每日活动' }
         ];
-        flows.forEach(f => {
-            // 四态：已完成 / 未注入（已放弃）/ 连续超时未完成（已放弃）/ 待执行
-            const skipReason = isTaskFlowSkippedToday(f.name) ? getTaskFlowSkipReason(f.name) : '';
+        flows.forEach(f = {
+             四态：已完成  未注入（已放弃） 连续超时未完成（已放弃） 待执行
+            const skipReason = isTaskFlowSkippedToday(f.name)  getTaskFlowSkipReason(f.name)  '';
             const value = isTaskFlowCompletedToday(f.name)
-                ? pillSuccess('✓ 完成')
-                : (skipReason === 'incomplete' ? pillSkipped('⊘ 超时')
-                    : skipReason === 'not-injected' ? pillSkipped('⊘ 不支持')
-                    : pillMuted());
-            cols.push(`<div style="${colStyle}"><span style="${labelStyle}">${f.label}</span>${value}</div>`);
+                 pillSuccess('✓ 完成')
+                 (skipReason === 'incomplete'  pillSkipped('⊘ 超时')
+                     skipReason === 'not-injected'  pillSkipped('⊘ 不支持')
+                     pillMuted());
+            cols.push(`div style=${colStyle}span style=${labelStyle}${f.label}span${value}div`);
         });
     }
 
     return `
-        <div style="display:flex;gap:6px;padding:10px 8px;background:var(--panel-hover-bg,#f9f9f9);border-radius:8px;">
+        div style=displayflex;gap6px;padding10px 8px;backgroundvar(--panel-hover-bg,#f9f9f9);border-radius8px;
             ${cols.join('')}
-        </div>
+        div
     `;
 }
 
-/**
- * 实时刷新面板任务数据（签到状态 + APP 阅读进度）
- * 面板创建/展开时调用，确保页面刷新后面板信息实时获取
- */
+
+  实时刷新面板任务数据（签到状态 + APP 阅读进度）
+  面板创建展开时调用，确保页面刷新后面板信息实时获取
+ 
 async function refreshAppTaskPanelData() {
     if (!CONFIG.appCheckInEnabled && !CONFIG.appReadEnabled) return;
 
-    // 签到状态从本地日期戳同步
+     签到状态从本地日期戳同步
     AppTaskRunner.syncCheckInState();
 
-    // 当日阅读已完成：恢复缓存进度即可，不再实时查询（进度二次校验由兜底流程负责）
+     当日阅读已完成：恢复缓存进度即可，不再实时查询（进度二次校验由兜底流程负责）
     if (CONFIG.appReadEnabled && AppTaskRunner.isDoneToday('appReadDate')) {
         AppTaskRunner.restoreCachedReadProgress();
         state.appTasks.readDone = true;
@@ -3688,47 +3679,47 @@ async function refreshAppTaskPanelData() {
         return;
     }
 
-    // 已授权且当日阅读进度未同步时，实时查询服务端进度
+     已授权且当日阅读进度未同步时，实时查询服务端进度
     if (CONFIG.appReadEnabled && !state.appTasks.readProgressSynced &&
-        (state.appToken || GM_getValue('appRefreshToken', ''))) {
+        (state.appToken  GM_getValue('appRefreshToken', ''))) {
         try {
             if (await AppAuth.ensureToken()) {
                 await AppTaskRunner.syncReadProgress();
             }
         } catch (e) {
-            // 查询失败保持现有显示，不打断面板渲染
+             查询失败保持现有显示，不打断面板渲染
         }
     }
 
     updateStatusPanel();
 }
 
-// 面板状态提示条的配色变体（图标 + 文案由 buildPanelNotice 组装）
+ 面板状态提示条的配色变体（图标 + 文案由 buildPanelNotice 组装）
 const PANEL_NOTICE_VARIANTS = {
-    info: { bg: 'var(--panel-info-bg,#f0f7ff)', border: 'var(--panel-primary-color,#0067b8)', color: 'var(--panel-info-text,#005a9e)' },
-    success: { bg: 'var(--panel-success-bg,#f0f9f0)', border: 'var(--panel-success-text,#107c10)', color: 'var(--panel-success-text,#107c10)' },
-    muted: { bg: 'var(--panel-hover-bg,#f5f5f5)', border: 'var(--panel-text-muted,#999)', color: 'var(--panel-text-secondary,#666)' }
+    info { bg 'var(--panel-info-bg,#f0f7ff)', border 'var(--panel-primary-color,#0067b8)', color 'var(--panel-info-text,#005a9e)' },
+    success { bg 'var(--panel-success-bg,#f0f9f0)', border 'var(--panel-success-text,#107c10)', color 'var(--panel-success-text,#107c10)' },
+    muted { bg 'var(--panel-hover-bg,#f5f5f5)', border 'var(--panel-text-muted,#999)', color 'var(--panel-text-secondary,#666)' }
 };
 
-/**
- * 生成面板状态提示条（面板内各状态提示共用，避免重复样式串）
- * @param {string} icon 图标字符
- * @param {string} text 提示文案
- * @param {'info'|'success'|'muted'} variant 配色变体
- */
+
+  生成面板状态提示条（面板内各状态提示共用，避免重复样式串）
+  @param {string} icon 图标字符
+  @param {string} text 提示文案
+  @param {'info''success''muted'} variant 配色变体
+ 
 function buildPanelNotice(icon, text, variant = 'info') {
-    const c = PANEL_NOTICE_VARIANTS[variant] || PANEL_NOTICE_VARIANTS.info;
+    const c = PANEL_NOTICE_VARIANTS[variant]  PANEL_NOTICE_VARIANTS.info;
     return `
-        <div style="padding:12px;background:${c.bg};border-radius:8px;border-left:3px solid ${c.border};display:flex;align-items:center;gap:8px;">
-            <span style="font-size:18px;">${icon}</span>
-            <span style="color:${c.color};font-size:12px;font-weight:500;">${text}</span>
-        </div>
+        div style=padding12px;background${c.bg};border-radius8px;border-left3px solid ${c.border};displayflex;align-itemscenter;gap8px;
+            span style=font-size18px;${icon}span
+            span style=color${c.color};font-size12px;font-weight500;${text}span
+        div
     `;
 }
 
-/**
- * 更新状态面板
- */
+
+  更新状态面板
+ 
 function updateStatusPanel() {
     if (!state.statusPanel) return;
 
@@ -3738,183 +3729,215 @@ function updateStatusPanel() {
     const pageStatus = document.getElementById('page-status');
     const countdownElement = document.getElementById('panel-countdown');
 
-    // 更新页面状态指示器（仅在可见性变化时重排，避免每秒重建 DOM）
+     更新页面状态指示器（仅在可见性变化时重排，避免每秒重建 DOM）
     const taskRunningStatus = document.getElementById('task-running-status');
     const isVisible = utils.isPageVisible();
     if (state.panelPageVisible !== isVisible) {
         state.panelPageVisible = isVisible;
         pageStatus.innerHTML = isVisible
-            ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#107c10;box-shadow:0 0 6px rgba(16,124,16,0.5);animation:pulse 2s ease-in-out infinite;"></span> <span id="page-status-text">页面活跃</span>'
-            : '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#999;"></span> <span id="page-status-text">后台运行</span>';
-        pageStatus.style.color = isVisible ? 'var(--panel-success-text,#107c10)' : 'var(--panel-text-muted,#666)';
+             'span style=displayinline-block;width8px;height8px;border-radius50%;background#107c10;box-shadow0 0 6px rgba(16,124,16,0.5);animationpulse 2s ease-in-out infinite;span span id=page-status-text页面活跃span'
+             'span style=displayinline-block;width8px;height8px;border-radius50%;background#999;span span id=page-status-text后台运行span';
+        pageStatus.style.color = isVisible  'var(--panel-success-text,#107c10)'  'var(--panel-text-muted,#666)';
     }
 
-    // 更新任务执行状态显示
+     更新任务执行状态显示
     if (taskRunningStatus) {
-        taskRunningStatus.style.display = status.running && status.pauseSeconds === 0 && !taskStatus.isCompleted ? 'flex' : 'none';
+        taskRunningStatus.style.display = status.running && status.pauseSeconds === 0 && !taskStatus.isCompleted  'flex'  'none';
     }
 
     const progress = taskStatus.overallProgress;
 
-    // 收缩态倒计时：文案与配色统一由 derivePanelStatus 派生（展开态隐藏）
+     收缩态倒计时：文案与配色统一由 derivePanelStatus 派生（展开态隐藏）
     if (countdownElement) {
-        countdownElement.textContent = state.isPanelCollapsed ? status.countdownText : '';
+        countdownElement.textContent = state.isPanelCollapsed  status.countdownText  '';
         if (state.isPanelCollapsed) countdownElement.style.color = status.countdownColor;
     }
 
-    // 内容区：仅在影响结构的字段变化时重建，秒级刷新交由下方定向更新（避免每秒整块重排）
+     内容区：仅在影响结构的字段变化时重建，秒级刷新交由下方定向更新（避免每秒整块重排）
     const summaryHtml = getTaskSummaryPanelHtml();
     const signature = [
         taskStatus.currentCount, taskStatus.maxCount, taskStatus.isCompleted, status.terminated,
-        state.panel.currentWord, status.showNextWord, status.pauseSeconds > 0,
+        state.panel.currentWord, status.showNextWord, status.pauseSeconds  0,
         status.running, state.appTasks.readRunning, state.appTasks.readCurrent, state.appTasks.readTotal,
         summaryHtml
-    ].join('|');
+    ].join('');
 
     if (state.panelSignature !== signature) {
         state.panelSignature = signature;
         content.innerHTML = `
-        <div style="display:grid;gap:12px;">
-            <!-- 任务状态摘要（APP签到 / APP阅读 / 日常任务 / 每日活动，单行 4 列） -->
+        div style=displaygrid;gap12px;
+            !-- 任务状态摘要（APP签到  APP阅读  日常任务  每日活动，单行 4 列） --
             ${summaryHtml}
 
-            <!-- 进度信息行 -->
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span style="color:var(--panel-text-secondary,#666);font-size:12px;font-weight:500;">
+            !-- 进度信息行 --
+            div style=displayflex;justify-contentspace-between;align-itemscenter;
+                span style=colorvar(--panel-text-secondary,#666);font-size12px;font-weight500;
                     📊 搜索进度
-                </span>
-                <span style="color:var(--panel-primary-color,#0067b8);font-weight:600;font-size:13px;background:var(--panel-info-bg,#f0f7ff);padding:3px 10px;border-radius:12px;">
-                    ${taskStatus.currentCount}/${taskStatus.maxCount}
-                </span>
-            </div>
+                span
+                span style=colorvar(--panel-primary-color,#0067b8);font-weight600;font-size13px;backgroundvar(--panel-info-bg,#f0f7ff);padding3px 10px;border-radius12px;
+                    ${taskStatus.currentCount}${taskStatus.maxCount}
+                span
+            div
 
-            <!-- 进度条 -->
-            <div style="position:relative;">
-                <div style="height:12px;background:var(--panel-progress-bg,#f0f0f0);border-radius:6px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,0.05);">
-                    <div style="width:${progress}%;height:100%;background:linear-gradient(90deg,var(--panel-primary-color,#0067b8),#00bcf2);border-radius:6px;transition:width 0.3s ease;position:relative;">
-                        ${progress > 10 ? '<span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;color:#fff;font-weight:600;">' + progress + '%</span>' : ''}
-                    </div>
-                </div>
-            </div>
+            !-- 进度条 --
+            div style=positionrelative;
+                div style=height12px;backgroundvar(--panel-progress-bg,#f0f0f0);border-radius6px;overflowhidden;box-shadowinset 0 1px 2px rgba(0,0,0,0.05);
+                    div style=width${progress}%;height100%;backgroundlinear-gradient(90deg,var(--panel-primary-color,#0067b8),#00bcf2);border-radius6px;transitionwidth 0.3s ease;positionrelative;
+                        ${progress  10  'span style=positionabsolute;right8px;top50%;transformtranslateY(-50%);font-size10px;color#fff;font-weight600;' + progress + '%span'  ''}
+                    div
+                div
+            div
 
-            <!-- APP 端任务状态（签到 + 资讯阅读） -->
-            ${state.appTasks.readRunning ? buildPanelNotice('📖', `APP阅读执行中${state.appTasks.readTotal > 0 ? ` ${state.appTasks.readCurrent}/${state.appTasks.readTotal}分` : ''}，完成后继续搜索`, 'info') : ''}
+            !-- APP 端任务状态（签到 + 资讯阅读） --
+            ${state.appTasks.readRunning  buildPanelNotice('📖', `APP阅读执行中${state.appTasks.readTotal  0  ` ${state.appTasks.readCurrent}${state.appTasks.readTotal}分`  ''}，完成后继续搜索`, 'info')  ''}
 
-            ${taskStatus.isCompleted ? buildPanelNotice(
-                status.terminated ? '⏹️' : '✅',
-                status.terminated ? '今日任务已终止，可从菜单重新开始' : '今日任务已完成',
-                status.terminated ? 'muted' : 'success'
-            ) : ''}
+            ${taskStatus.isCompleted  buildPanelNotice(
+                status.terminated  '⏹️'  '✅',
+                status.terminated  '今日任务已终止，可从菜单重新开始'  '今日任务已完成',
+                status.terminated  'muted'  'success'
+            )  ''}
 
-            ${status.pauseSeconds > 0 ? `
-                <div style="padding:12px;background:var(--panel-warning-bg,#fff8e6);border-radius:8px;border-left:3px solid var(--panel-warning-border,#ffb900);display:flex;align-items:center;gap:8px;">
-                    <span style="font-size:18px;">⏸️</span>
-                    <div style="flex:1;">
-                        <div style="font-size:12px;color:var(--panel-warning-text,#8a6900);font-weight:500;">暂停中</div>
-                        <div style="font-size:11px;color:var(--panel-warning-text,#8a6900);margin-top:2px;opacity:0.8;"><span id="pause-time-left"></span></div>
-                    </div>
-                </div>
-            ` : ''}
+            ${status.pauseSeconds  0  `
+                div style=padding12px;backgroundvar(--panel-warning-bg,#fff8e6);border-radius8px;border-left3px solid var(--panel-warning-border,#ffb900);displayflex;align-itemscenter;gap8px;
+                    span style=font-size18px;⏸️span
+                    div style=flex1;
+                        div style=font-size12px;colorvar(--panel-warning-text,#8a6900);font-weight500;暂停中div
+                        div style=font-size11px;colorvar(--panel-warning-text,#8a6900);margin-top2px;opacity0.8;span id=pause-time-leftspandiv
+                    div
+                div
+            `  ''}
 
-            ${status.showNextWord ? `
-                <div style="padding:12px;background:var(--panel-info-bg,#f0f7ff);border-radius:8px;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-                        <span style="font-size:11px;color:var(--panel-info-text,#005a9e);font-weight:500;">🔍 下个搜索词</span>
-                        <span style="font-size:10px;color:var(--panel-text-secondary,#666);background:var(--panel-hover-bg,#f5f5f5);padding:2px 8px;border-radius:10px;"><span id="next-search-eta"></span></span>
-                    </div>
-                    <div style="font-size:12px;word-break:break-all;color:var(--panel-text-primary,#1a1a1a);line-height:1.5;max-height:44px;overflow-y:auto;font-weight:500;">${utils.escapeHtml(state.panel.currentWord)}</div>
-                </div>
-            ` : ''}
-        </div>
+            ${status.showNextWord  `
+                div style=padding12px;backgroundvar(--panel-info-bg,#f0f7ff);border-radius8px;
+                    div style=displayflex;justify-contentspace-between;align-itemscenter;margin-bottom6px;
+                        span style=font-size11px;colorvar(--panel-info-text,#005a9e);font-weight500;🔍 下个搜索词span
+                        span style=font-size10px;colorvar(--panel-text-secondary,#666);backgroundvar(--panel-hover-bg,#f5f5f5);padding2px 8px;border-radius10px;span id=next-search-etaspanspan
+                    div
+                    div style=font-size12px;word-breakbreak-all;colorvar(--panel-text-primary,#1a1a1a);line-height1.5;max-height44px;overflow-yauto;font-weight500;${utils.escapeHtml(state.panel.currentWord)}div
+                div
+            `  ''}
+        div
     `;
     }
 
-    // 秒级字段定向更新（倒计时与暂停剩余时间），仅为刷新数字时不重建整块内容；对应区块隐藏时不写入
+     秒级字段定向更新（倒计时与暂停剩余时间），仅为刷新数字时不重建整块内容；对应区块隐藏时不写入
     if (status.showNextWord) {
         const etaElement = document.getElementById('next-search-eta');
         if (etaElement) etaElement.textContent = status.etaText;
     }
-    if (status.pauseSeconds > 0) {
+    if (status.pauseSeconds  0) {
         const pauseElement = document.getElementById('pause-time-left');
         if (pauseElement) pauseElement.textContent = status.pauseText;
     }
 }
 
-/**
- * 获取热门搜索词
- */
+
+  获取热门搜索词
+ 
 async function fetchSearchKeywords() {
-    const cacheKey = 'cache_search_words';
+    const region = getExecutionRegion();
+     缓存按地区隔离，切换到美国等地区时不会复用中文热词。
+     v2 强制失效旧的混合地区缓存。
+    const cacheKey = `cache_search_words_${region.country.toLowerCase()}_v2`;
     const cached = GM_getValue(cacheKey);
 
-    if (cached && Date.now() - cached.time < 3600000) {
+    if (cached && Date.now() - cached.time  3600000) {
         return cached.words;
     }
 
-    // 定义热词API源
-    const sources = [
+     定义热词API源
+    const chinaSources = [
         {
-            name: "今日头条热榜",
-            url: "https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc",
-            parser: data => data.data?.map(item => item.Title?.trim()).filter(Boolean) || []
+            name 今日头条热榜,
+            url httpswww.toutiao.comhot-eventhot-boardorigin=toutiao_pc,
+            parser data = data.data.map(item = item.Title.trim()).filter(Boolean)  []
         },
         {
-            name: "微博实时热点",
-            url: "https://m.weibo.cn/api/container/getIndex?containerid=106003type%3D25%26t%3D3%26disable_hot%3D1%26filter_type%3Drealtimehot",
-            parser: data => {
+            name 微博实时热点,
+            url httpsm.weibo.cnapicontainergetIndexcontainerid=106003type%3D25%26t%3D3%26disable_hot%3D1%26filter_type%3Drealtimehot,
+            parser data = {
                 if (data.data.cards && data.data.cards[0].card_group) {
                     return data.data.cards[0].card_group
-                        .map(item => item.desc)
+                        .map(item = item.desc)
                         .filter(Boolean);
                 }
                 return [];
             }
         },
         {
-            name: "百度热搜",
-            url: "https://top.baidu.com/api/board?tab=realtime",
-            parser: data => data.data?.cards?.[0]?.content?.map(item => item.word) || []
+            name 百度热搜,
+            url httpstop.baidu.comapiboardtab=realtime,
+            parser data = data.data.cards.[0].content.map(item = item.word)  []
         },
         {
-            name: "腾讯新闻热点",
-            url: "https://r.inews.qq.com/gw/event/hot_ranking_list?page_size=50",
-            parser: data => data.idlist?.[0]?.newslist?.map(item => item.title) || []
+            name 腾讯新闻热点,
+            url httpsr.inews.qq.comgweventhot_ranking_listpage_size=50,
+            parser data = data.idlist.[0].newslist.map(item = item.title)  []
         }
     ];
 
-    const allWords = new Set(); // 使用Set避免重复词
+     New.js 的海外热词分支：仅在非中国大陆地区启用，避免国内网络环境中
+     请求不可达服务而拖慢启动。XML 直接由浏览器 DOMParser 解析。
+     中国大陆仅使用本地热榜；其他地区绝不混入中文热榜。
+    const sources = region.country === 'CN'  [...chinaSources]  [];
+    if (region.country !== 'CN') {
+        sources.push({
+            name 'Google 新闻',
+            url `httpsnews.google.comrsshl=${encodeURIComponent(region.language)}&gl=${region.country}&ceid=${encodeURIComponent(region.newsCeid)}`,
+            parser (_data, responseText) = {
+                const xml = new DOMParser().parseFromString(responseText, 'textxml');
+                return [...xml.querySelectorAll('item  title')]
+                    .map(item = item.textContent.replace( - Google News$, '').trim())
+                    .filter(Boolean);
+            },
+            xml true
+        });
+        sources.push({
+            name 'Google Trends',
+            url `httpstrends.google.comtrendingrssgeo=${region.country}`,
+            parser (_data, responseText) = {
+                const xml = new DOMParser().parseFromString(responseText, 'textxml');
+                return [...xml.querySelectorAll('item  title')].map(item = item.textContent.trim()).filter(Boolean);
+            },
+            xml true
+        });
+    }
 
-    // 并行请求所有API（单源失败不影响整体：swallowError 让失败源返回空串而非中断）
-    const promises = sources.map(source =>
-        request({ url: source.url, swallowError: true }).then(text => {
+    const allWords = new Set();  使用Set避免重复词
+
+     并行请求所有API（单源失败不影响整体：swallowError 让失败源返回空串而非中断）
+    const promises = sources.map(source =
+        request({ url source.url, swallowError true }).then(text = {
             if (!text) {
                 GM_log(`${source.name} 请求失败或超时`);
                 return [];
             }
             try {
-                const data = utils.safeJsonParse(text, {});
-                const words = source.parser(data).filter(word =>
+                const data = source.xml  {}  utils.safeJsonParse(text, {});
+                const words = source.parser(data, text).filter(word =
                     word &&
-                    word.length >= 2 &&
-                    word.length <= 30 &&
-                    !/^[0-9]+$/.test(word) // 过滤纯数字
+                    word.length = 2 &&
+                    word.length = 30 &&
+                    !^[0-9]+$.test(word) &&
+                     美国模式仅接受含拉丁字母的候选，避免数据源异常时出现中文标题。
+                    (region.country !== 'US'  [a-z]i.test(word))
                 );
                 GM_log(`从 ${source.name} 获取到 ${words.length} 个热词`);
                 return words;
             } catch (e) {
-                GM_log(`解析 ${source.name} 数据失败: ${e.message}`);
+                GM_log(`解析 ${source.name} 数据失败 ${e.message}`);
                 return [];
             }
         })
     );
 
-    // 等待所有API请求完成
+     等待所有API请求完成
     const results = await Promise.all(promises);
 
-    // 合并所有结果并去重
-    results.forEach(words => {
-        words.forEach(word => {
-            // 额外过滤条件
+     合并所有结果并去重
+    results.forEach(words = {
+        words.forEach(word = {
+             额外过滤条件
             if (word && !allWords.has(word)) {
                 allWords.add(word);
             }
@@ -3924,31 +3947,133 @@ async function fetchSearchKeywords() {
     const allWordsArray = Array.from(allWords);
     GM_log(`总共获取到 ${allWordsArray.length} 个不重复的热词`);
 
-    // 如果从API获取的词不够，补充本地词库
-    if (allWordsArray.length < CONFIG.maxSearches) {
-        const remainingCount = CONFIG.maxSearches - allWordsArray.length;
-        const localWords = utils.shuffleArray(SEARCH_WORDS);
-        for (let i = 0; i < remainingCount && i < SEARCH_WORDS.length; i++) {
+     如果从API获取的词不够，补充本地词库
+    const targetCount = getSearchTarget();
+    if (allWordsArray.length  targetCount) {
+        const remainingCount = targetCount - allWordsArray.length;
+        const fallbackWords = region.country === 'US'
+             ['latest news', 'technology trends', 'world news', 'weather forecast', 'sports scores', 'science discoveries', 'movie releases', 'healthy recipes', 'travel ideas', 'financial markets', 'artificial intelligence', 'space exploration', 'music charts', 'popular books', 'business news']
+             SEARCH_WORDS;
+        const localWords = utils.shuffleArray(fallbackWords);
+        for (let i = 0; i  remainingCount && i  localWords.length; i++) {
             if (!allWords.has(localWords[i])) {
                 allWordsArray.push(localWords[i]);
             }
         }
     }
 
-    // 随机打乱合并后的词库
+     随机打乱合并后的词库
     const words = utils.shuffleArray(allWordsArray);
 
-    // 保存到缓存
-    GM_setValue(cacheKey, { words, time: Date.now() });
+     保存到缓存
+    GM_setValue(cacheKey, { words, time Date.now() });
 
     return words;
 }
 
-/**
- * 获取任务状态
- */
+ ==================== 搜索分组与主题扩展 ====================
+ 每个暂停间隔对应一个搜索组：首条使用热词，后续条目以首词为主题，
+ 优先读取结果页 Deep Dive 卡片；卡片缺失时才请求 Bing 自动补全接口。
+ 状态保存在 GM 存储中，以便页面跳转后仍能维持同一组。
+function getSearchGroup() {
+    const group = GM_getValue('activeSearchGroup', null);
+    return group && group.date === utils.getTodayStr()  group  null;
+}
+
+function saveSearchGroup(group) {
+    GM_setValue('activeSearchGroup', { ...group, date utils.getTodayStr() });
+}
+
+async function getBingAutoCompleteQueries(seed) {
+    const region = getExecutionRegion();
+    const url = `https${region.bingHost}ASSuggestionspt=page.home&mkt=${encodeURIComponent(region.language)}&qry=${encodeURIComponent(seed)}`;
+    const response = await request({ url, swallowError true });
+    if (!response) return [];
+
+    const xml = new DOMParser().parseFromString(response, 'textxml');
+    const xmlQueries = [...xml.querySelectorAll('s[q]')]
+        .map(item = item.getAttribute('q').trim())
+        .filter(Boolean);
+    if (xmlQueries.length) return xmlQueries;
+
+    const json = utils.safeJsonParse(response, null);
+    return Array.isArray(json)
+         (json[1]  []).map(item = Array.isArray(item)  item[0]  item).filter(item = typeof item === 'string')
+         [];
+}
+
+ 从 Bing 结果页的 “Deep dive into …” 卡片读取可点击的主题建议。
+ 页面结构会随地区和实验版本改变，因此同时支持链接按钮和纯文本两种呈现。
+function getDeepDiveQueries() {
+    const heading = [...document.querySelectorAll('h1,h2,h3,h4,div,span,p')]
+        .find(element = ^Deep dive intobi.test(element.textContent.trim()));
+    if (!heading) return [];
+
+    for (let level = 0, container = heading.parentElement; container && level  5; level++, container = container.parentElement) {
+        const clickable = [...container.querySelectorAll('a,button,[role=link]')]
+            .map(element = element.textContent.replace(s+g, ' ').trim())
+            .filter(text = text.length = 3 && text.length = 100 && !^Deep dive intobi.test(text));
+        if (clickable.length = 2 && clickable.length = 12) return [...new Set(clickable)];
+
+         部分版本将建议卡渲染成不可访问的 div；保留同一卡片内的短文本行。
+        const lines = (container.innerText  '').split('n')
+            .map(text = text.replace(s+g, ' ').trim())
+            .filter(text = text.length = 3 && text.length = 100 && !^Deep dive intobi.test(text));
+        if (lines.length = 2 && lines.length = 12) return [...new Set(lines)];
+    }
+    return [];
+}
+
+async function getAssociatedSearchWord(group) {
+    const used = new Set(group.used  []);
+     仅在首词结果页读取一次 Deep Dive，后续页面复用同一池，确保整组围绕首词。
+    const deepDiveQueries = group.deepDiveQueries.length  group.deepDiveQueries  getDeepDiveQueries();
+    const autoCompleteQueries = deepDiveQueries.length  []  await getBingAutoCompleteQueries(group.seed);
+    const candidates = deepDiveQueries.length  deepDiveQueries  autoCompleteQueries;
+    const available = candidates.filter(word = !used.has(word));
+     自动补全也不可用时保持首词，绝不拼接同主题扩展词。
+    const word = available.length
+         available[Math.floor(Math.random()  available.length)]
+         candidates.length  candidates[Math.floor(Math.random()  candidates.length)]  group.seed;
+    return { word, used [...used, word], deepDiveQueries };
+}
+
+async function getNextSearchPlan(baseWord) {
+    const activeGroup = getSearchGroup();
+    if (activeGroup && activeGroup.remaining  0) {
+        const related = await getAssociatedSearchWord(activeGroup);
+        return {
+            word related.word,
+            group { ...activeGroup, used related.used, deepDiveQueries related.deepDiveQueries },
+            isFirst false
+        };
+    }
+
+    const groupSize = utils.getRandomPauseInterval();
+    return {
+        word baseWord,
+        group { seed baseWord, remaining groupSize, used [baseWord] },
+        isFirst true
+    };
+}
+
+
+  获取任务状态
+ 
+function getSearchTarget(forceNewTarget = false) {
+    const min = Math.max(1, Math.min(50, Number.parseInt(CONFIG.minSearches, 10)  1));
+    const max = Math.max(min, Math.min(50, Number.parseInt(CONFIG.maxSearches, 10)  min));
+    const stored = Number.parseInt(GM_getValue('currentSearchTarget', 0), 10);
+    if (!forceNewTarget && stored = min && stored = max) return stored;
+
+    const target = Math.floor(Math.random()  (max - min + 1)) + min;
+    GM_setValue('currentSearchTarget', target);
+    GM_log(`本次搜索目标 ${target}（随机区间 ${min}-${max}）`);
+    return target;
+}
+
 function getTaskStatus() {
-    // 搜索计数跨天自动归零：仅存储数字会导致次日被判定为已完成而停摆，故附带日期戳比对
+     搜索计数跨天自动归零：仅存储数字会导致次日被判定为已完成而停摆，故附带日期戳比对
     const today = utils.getTodayStr();
     let searchCount = GM_getValue('searchCount', 0);
     if (GM_getValue('searchCountDate', '') !== today) {
@@ -3957,22 +4082,23 @@ function getTaskStatus() {
         searchCount = 0;
     }
 
+    const maxCount = getSearchTarget();
     return {
-        currentCount: searchCount,
-        maxCount: CONFIG.maxSearches,
-        isCompleted: searchCount >= CONFIG.maxSearches,
-        overallProgress: Math.round((searchCount / CONFIG.maxSearches) * 100)
+        currentCount searchCount,
+        maxCount,
+        isCompleted searchCount = maxCount,
+        overallProgress Math.round((searchCount  maxCount)  100)
     };
 }
 
-// 当日是否被手动终止（与「已完成」区分，跨天自动失效）
+ 当日是否被手动终止（与「已完成」区分，跨天自动失效）
 function isTaskTerminatedToday() {
     return GM_getValue('searchTerminatedDate', '') === utils.getTodayStr();
 }
 
-/**
- * 重置面板数据与倒计时（任务完成 / 手动终止 / 新一轮启动时统一调用，根治残留显示）
- */
+
+  重置面板数据与倒计时（任务完成  手动终止  新一轮启动时统一调用，根治残留显示）
+ 
 function resetPanelStatus() {
     state.panel.currentWord = '';
     state.panel.pauseTimeLeft = null;
@@ -3980,17 +4106,17 @@ function resetPanelStatus() {
     state.countdownDuration = 0;
 }
 
-/**
- * 派生面板显示状态（收缩态倒计时文案、下个搜索词显示条件与秒级文案）
- * 跨页面跳转后 state.isRunning 会重置为 false，故以「当日已有进度且未完成」兜底判定进行中
- * @param {{currentCount:number,maxCount:number,isCompleted:boolean}} taskStatus
- */
+
+  派生面板显示状态（收缩态倒计时文案、下个搜索词显示条件与秒级文案）
+  跨页面跳转后 state.isRunning 会重置为 false，故以「当日已有进度且未完成」兜底判定进行中
+  @param {{currentCountnumber,maxCountnumber,isCompletedboolean}} taskStatus
+ 
 function derivePanelStatus(taskStatus) {
     const { currentWord, pauseTimeLeft } = state.panel;
     const remainingTime = utils.getAccurateRemainingTime();
-    const pauseSeconds = pauseTimeLeft !== null && pauseTimeLeft > 0 ? Math.ceil(pauseTimeLeft) : 0;
+    const pauseSeconds = pauseTimeLeft !== null && pauseTimeLeft  0  Math.ceil(pauseTimeLeft)  0;
     const terminated = taskStatus.isCompleted && isTaskTerminatedToday();
-    const running = state.isRunning || (taskStatus.currentCount > 0 && !taskStatus.isCompleted);
+    const running = state.isRunning  (taskStatus.currentCount  0 && !taskStatus.isCompleted);
 
     let countdownText = '';
     let countdownColor = 'var(--panel-text-muted,#999)';
@@ -3999,20 +4125,20 @@ function derivePanelStatus(taskStatus) {
     } else if (taskStatus.isCompleted) {
         countdownText = '✅ 已完成';
         countdownColor = 'var(--panel-success-text,#107c10)';
-    } else if (pauseSeconds > 0) {
+    } else if (pauseSeconds  0) {
         countdownText = `⏸️ ${utils.formatClock(pauseSeconds)}`;
         countdownColor = 'var(--panel-warning-text,#8a6900)';
     } else if (state.appTasks.readRunning) {
         countdownText = '📖 阅读中';
         countdownColor = 'var(--panel-info-text,#005a9e)';
-    } else if (running && remainingTime > 0) {
+    } else if (running && remainingTime  0) {
         countdownText = `⏱️ ${Math.ceil(remainingTime)}s`;
         countdownColor = 'var(--panel-info-text,#005a9e)';
     } else if (running) {
         countdownText = '⏳ 准备中';
         countdownColor = 'var(--panel-info-text,#005a9e)';
     } else {
-        // 未开始：当日计数为 0，其余状态已被上面的分支覆盖
+         未开始：当日计数为 0，其余状态已被上面的分支覆盖
         countdownText = '⏹️ 待启动';
     }
 
@@ -4022,16 +4148,16 @@ function derivePanelStatus(taskStatus) {
         pauseSeconds,
         countdownText,
         countdownColor,
-        // 「下个搜索词」仅在运行中且未完成、非暂停、倒计时有效时显示（修复完成后残留显示）
-        showNextWord: running && !taskStatus.isCompleted && pauseSeconds === 0 && remainingTime > 0 && Boolean(currentWord),
-        etaText: `${Math.ceil(remainingTime)}秒后`,
-        pauseText: `${Math.floor(pauseSeconds / 60)}分${pauseSeconds % 60}秒后继续`
+         「下个搜索词」仅在运行中且未完成、非暂停、倒计时有效时显示（修复完成后残留显示）
+        showNextWord running && !taskStatus.isCompleted && pauseSeconds === 0 && remainingTime  0 && Boolean(currentWord),
+        etaText `${Math.ceil(remainingTime)}秒后`,
+        pauseText `${Math.floor(pauseSeconds  60)}分${pauseSeconds % 60}秒后继续`
     };
 }
 
-/**
- * 执行搜索任务
- */
+
+  执行搜索任务
+ 
 async function executeSearch() {
     if (state.isRunning) return;
     state.isRunning = true;
@@ -4040,27 +4166,27 @@ async function executeSearch() {
     const taskStatus = getTaskStatus();
 
     if (taskStatus.isCompleted) {
-        // 兜底：搜索完成后若 APP 任务未全部完成，补跑确保签到与阅读完成
-        if ((CONFIG.appCheckInEnabled || CONFIG.appReadEnabled) && !AppTaskRunner.isAllDone()) {
+         兜底：搜索完成后若 APP 任务未全部完成，补跑确保签到与阅读完成
+        if ((CONFIG.appCheckInEnabled  CONFIG.appReadEnabled) && !AppTaskRunner.isAllDone()) {
             await AppTaskRunner.runAll();
         }
         resetPanelStatus();
         updateStatusPanel();
-        // 与面板文案保持一致：手动终止后不再提示「任务已完成」
+         与面板文案保持一致：手动终止后不再提示「任务已完成」
         GM_notification({
-            title: '任务完成',
-            text: isTaskTerminatedToday() ? '今日任务已终止，可从菜单重新开始' : 'Bing Rewards 任务已完成',
-            timeout: 3000
+            title '任务完成',
+            text isTaskTerminatedToday()  '今日任务已终止，可从菜单重新开始'  'Bing Rewards 任务已完成',
+            timeout 3000
         });
         state.isRunning = false;
         return;
     }
 
-    // 更新标题
+     更新标题
     const title = document.querySelector('title');
-    if (title) title.textContent = `[${taskStatus.currentCount}/${taskStatus.maxCount}] Brian Tool...`;
+    if (title) title.textContent = `[${taskStatus.currentCount}${taskStatus.maxCount}] Brian Tool...`;
 
-    // 获取搜索词
+     获取搜索词
     if (state.searchWords.length === 0) {
         try {
             state.searchWords = await fetchSearchKeywords();
@@ -4070,74 +4196,73 @@ async function executeSearch() {
     }
 
     const searchIndex = taskStatus.currentCount % state.searchWords.length;
-    const searchWord = state.searchWords[searchIndex];
+    const searchPlan = await getNextSearchPlan(state.searchWords[searchIndex]);
+    const searchWord = searchPlan.word;
 
-    // 对搜索词进行处理
+     对搜索词进行处理
     const processedSearchWord = utils.processSearchWord(searchWord);
 
     const delay = utils.getRandomDelay();
 
-    // 设置精确倒计时与当前搜索词（面板数据统一写入 state.panel）
+     设置精确倒计时与当前搜索词（面板数据统一写入 state.panel）
     state.countdownStartTime = Date.now();
     state.countdownDuration = delay;
     state.panel.currentWord = processedSearchWord;
     state.panel.pauseTimeLeft = null;
 
-    // 更新面板
+     更新面板
     updateStatusPanel();
 
-    // 使用精确计时器,不受页面可见性影响
-    utils.addTimer(setTimeout(() => {
+     使用精确计时器,不受页面可见性影响
+    utils.addTimer(setTimeout(() = {
         utils.clearAllTimers();
-        // 搜索执行前随机完成 0-3 次 APP 阅读上报（阅读开关开启且当日未完成时），完成后继续搜索
-        AppTaskRunner.runRandomReads().finally(() => {
-            performSearch(processedSearchWord, taskStatus);
+         搜索执行前随机完成 0-3 次 APP 阅读上报（阅读开关开启且当日未完成时），完成后继续搜索
+        AppTaskRunner.runRandomReads().finally(() = {
+            performSearch(processedSearchWord, taskStatus, searchPlan);
         });
     }, delay));
 
-    // 添加一个定期更新面板的定时器（每秒更新一次）
+     添加一个定期更新面板的定时器（每秒更新一次）
     utils.addTimer(setInterval(updateStatusPanel, 1000));
 }
 
-/**
- * 执行搜索
- */
-function performSearch(searchWord, taskStatus) {
+
+  执行搜索
+ 
+function performSearch(searchWord, taskStatus, searchPlan) {
     const nextCount = taskStatus.currentCount + 1;
 
     GM_setValue('searchCount', nextCount);
-    GM_log(`搜索: ${searchWord} (${nextCount}/${taskStatus.maxCount})`);
+    GM_log(`搜索 ${searchWord} (${nextCount}${taskStatus.maxCount})`);
 
-    // 重置倒计时与搜索词（暂停期间不保留「下个搜索词」）
+     重置倒计时与搜索词（暂停期间不保留「下个搜索词」）
     resetPanelStatus();
 
-    // 随机暂停间隔检查
-    // 生成本次搜索周期内的暂停间隔（只在首次搜索时确定，之后保持不变直到完成一次完整搜索）
-    let currentPauseInterval = GM_getValue('currentPauseInterval', null);
-    if (currentPauseInterval === null) {
-        currentPauseInterval = utils.getRandomPauseInterval();
-        GM_setValue('currentPauseInterval', currentPauseInterval);
+     搜索组在此处提交一次：每次搜索都会消耗一个组内名额。
+     组尚未结束时，下页将继续围绕同一首词取联想；组结束后才暂停。
+    const group = { ...searchPlan.group, remaining Math.max(0, searchPlan.group.remaining - 1) };
+    const groupFinished = group.remaining === 0;
+    if (groupFinished) {
+        GM_deleteValue('activeSearchGroup');
+    } else {
+        saveSearchGroup(group);
     }
 
-    if (nextCount % currentPauseInterval === 0) {
-        // 每次暂停时生成新的随机暂停时间
+    if (groupFinished && nextCount  taskStatus.maxCount) {
+         每次暂停时生成新的随机暂停时间
         const pauseTime = utils.getRandomPauseTime();
         const pauseStartTime = Date.now();
-        state.panel.pauseTimeLeft = pauseTime / 1000;
+        state.panel.pauseTimeLeft = pauseTime  1000;
         updateStatusPanel();
 
-        // 使用精确的暂停计时
-        utils.addTimer(setInterval(() => {
+         使用精确的暂停计时
+        utils.addTimer(setInterval(() = {
             const elapsed = Date.now() - pauseStartTime;
-            state.panel.pauseTimeLeft = Math.max(0, (pauseTime - elapsed) / 1000);
+            state.panel.pauseTimeLeft = Math.max(0, (pauseTime - elapsed)  1000);
             updateStatusPanel();
 
-            if (state.panel.pauseTimeLeft <= 0) {
+            if (state.panel.pauseTimeLeft = 0) {
                 utils.clearAllTimers();
-
-                // 完成暂停后，重新生成下一个暂停间隔
-                GM_setValue('currentPauseInterval', utils.getRandomPauseInterval());
-
                 window.location.href = buildSearchUrl(searchWord);
             }
         }, 1000));
@@ -4146,80 +4271,80 @@ function performSearch(searchWord, taskStatus) {
     }
 }
 
-/**
- * 页面加载完成后执行随机滚动，模拟真实用户行为
- * 随机滚动多次，方向（上滑/下滑）和次数都是随机的
- */
+
+  页面加载完成后执行随机滚动，模拟真实用户行为
+  随机滚动多次，方向（上滑下滑）和次数都是随机的
+ 
 function randomScrollAfterPageLoad() {
-    // 等待页面内容完全加载（定时器纳入统一管理，终止任务时可彻底回收）
-    utils.addTimer(setTimeout(() => {
+     等待页面内容完全加载（定时器纳入统一管理，终止任务时可彻底回收）
+    utils.addTimer(setTimeout(() = {
         const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
         const viewportHeight = window.innerHeight;
         const maxScroll = scrollHeight - viewportHeight;
 
-        // 如果页面可以滚动
-        if (maxScroll > 0) {
-            // 随机生成滚动次数（2-5次）
-            const scrollCount = Math.floor(Math.random() * 4) + 2;
-            GM_log(`开始随机滚动，总次数: ${scrollCount}次`);
+         如果页面可以滚动
+        if (maxScroll  0) {
+             随机生成滚动次数（2-5次）
+            const scrollCount = Math.floor(Math.random()  4) + 2;
+            GM_log(`开始随机滚动，总次数 ${scrollCount}次`);
 
-            // 执行多次随机滚动
+             执行多次随机滚动
             let currentScroll = window.scrollY;
-            for (let i = 0; i < scrollCount; i++) {
-                utils.addTimer(setTimeout(() => {
-                    // 随机决定滚动方向：true=下滑，false=上滑
-                    const scrollDown = Math.random() > 0.2;
+            for (let i = 0; i  scrollCount; i++) {
+                utils.addTimer(setTimeout(() = {
+                     随机决定滚动方向：true=下滑，false=上滑
+                    const scrollDown = Math.random()  0.2;
 
-                    // 随机生成滚动距离（100-800px）
-                    const scrollDistance = Math.floor(Math.random() * 700) + 100;
+                     随机生成滚动距离（100-800px）
+                    const scrollDistance = Math.floor(Math.random()  700) + 100;
 
-                    // 计算新的滚动位置
+                     计算新的滚动位置
                     let newScrollPosition;
                     if (scrollDown) {
-                        // 下滑：当前位置 + 随机距离，不超过最大滚动位置
+                         下滑：当前位置 + 随机距离，不超过最大滚动位置
                         newScrollPosition = Math.min(currentScroll + scrollDistance, maxScroll);
                     } else {
-                        // 上滑：当前位置 - 随机距离，不小于0
+                         上滑：当前位置 - 随机距离，不小于0
                         newScrollPosition = Math.max(currentScroll - scrollDistance, 0);
                     }
 
-                    // 执行滚动
+                     执行滚动
                     window.scrollTo({
-                        top: newScrollPosition,
-                        behavior: 'smooth'
+                        top newScrollPosition,
+                        behavior 'smooth'
                     });
 
-                    // 更新当前位置
+                     更新当前位置
                     currentScroll = newScrollPosition;
 
-                    const direction = scrollDown ? '下滑' : '上滑';
-                    GM_log(`第${i + 1}次滚动: ${direction} ${scrollDistance}px，目标位置: ${newScrollPosition}px`);
+                    const direction = scrollDown  '下滑'  '上滑';
+                    GM_log(`第${i + 1}次滚动 ${direction} ${scrollDistance}px，目标位置 ${newScrollPosition}px`);
 
-                    // 如果是最后一次滚动，滚动结束后检查并点击链接
+                     如果是最后一次滚动，滚动结束后检查并点击链接
                     if (i === scrollCount - 1) {
-                        utils.addTimer(setTimeout(() => {
+                        utils.addTimer(setTimeout(() = {
                             checkAndClickSearchResult();
-                        }, 1500)); // 等待滚动动画完成
+                        }, 1500));  等待滚动动画完成
                     }
 
-                }, i * 1000)); // 每次滚动间隔1秒，模拟真实用户操作
+                }, i  1000));  每次滚动间隔1秒，模拟真实用户操作
             }
         } else {
-            // 页面无法滚动，直接检查并点击链接
+             页面无法滚动，直接检查并点击链接
             checkAndClickSearchResult();
         }
-    }, 2500)); // 等待2.5秒让页面内容加载完成
+    }, 2500));  等待2.5秒让页面内容加载完成
 }
 
-/**
- * 检查当前页面是否为搜索结果页且包含启动参数，如果是则点击搜索结果链接
- */
+
+  检查当前页面是否为搜索结果页且包含启动参数，如果是则点击搜索结果链接
+ 
 function checkAndClickSearchResult() {
     try {
-        // 前置检查：开关关闭或任务已终止（含手动终止）时不再打开搜索结果页
-        if (!CONFIG.clickSearchResults || !state.isRunning) return;
+         前置检查：开关关闭或任务已终止（含手动终止）时不再打开搜索结果页
+        if (!CONFIG.clickSearchResults  !state.isRunning) return;
 
-        const isSearchPage = /\/search/.test(window.location.pathname) && /[?&]q=/.test(window.location.search);
+        const isSearchPage = search.test(window.location.pathname) && [&]q=.test(window.location.search);
         if (!isSearchPage) return;
 
         const startParam = utils.getRandomStartParam();
@@ -4228,10 +4353,10 @@ function checkAndClickSearchResult() {
 
         GM_log(`检测到搜索结果页，准备点击链接`);
 
-        // 尝试从标准搜索结果中查找链接
+         尝试从标准搜索结果中查找链接
         let targetLink = findLinkFromSearchResults();
 
-        // 降级策略：如果未找到，查找页面全部链接
+         降级策略：如果未找到，查找页面全部链接
         if (!targetLink) {
             GM_log('未找到标准搜索结果，尝试查找页面全部链接');
             targetLink = findAnyValidLinkOnPage();
@@ -4242,21 +4367,21 @@ function checkAndClickSearchResult() {
             return;
         }
 
-        GM_log(`点击链接: ${targetLink.href}`);
+        GM_log(`点击链接 ${targetLink.href}`);
         simulateHumanClick(targetLink);
 
     } catch (error) {
-        GM_log(`点击搜索结果时出错: ${error.message}`);
+        GM_log(`点击搜索结果时出错 ${error.message}`);
     }
 }
 
-/**
- * 从标准搜索结果中查找可点击的链接
- * @returns {HTMLAnchorElement|null}
- */
+
+  从标准搜索结果中查找可点击的链接
+  @returns {HTMLAnchorElementnull}
+ 
 function findLinkFromSearchResults() {
     const searchResults = Array.from(document.querySelectorAll('li.b_algo'))
-        .filter(result => isElementVisible(result));
+        .filter(result = isElementVisible(result));
 
     if (searchResults.length === 0) {
         return null;
@@ -4264,11 +4389,11 @@ function findLinkFromSearchResults() {
 
     GM_log(`找到 ${searchResults.length} 个可见的搜索结果`);
 
-    // 最多尝试5次
+     最多尝试5次
     const maxAttempts = Math.min(5, searchResults.length);
 
-    for (let i = 0; i < maxAttempts; i++) {
-        const randomIndex = Math.floor(Math.random() * searchResults.length);
+    for (let i = 0; i  maxAttempts; i++) {
+        const randomIndex = Math.floor(Math.random()  searchResults.length);
         const result = searchResults[randomIndex];
         const link = findClickableLink(result);
 
@@ -4281,11 +4406,11 @@ function findLinkFromSearchResults() {
     return null;
 }
 
-/**
- * 检查元素是否在当前窗口可见
- * @param {Element} element - 要检查的元素
- * @returns {boolean} - 元素是否在当前窗口可见
- */
+
+  检查元素是否在当前窗口可见
+  @param {Element} element - 要检查的元素
+  @returns {boolean} - 元素是否在当前窗口可见
+ 
 function isElementVisible(element) {
     try {
         if (!element) {
@@ -4293,38 +4418,38 @@ function isElementVisible(element) {
         }
 
         const rect = element.getBoundingClientRect();
-        const windowHeight = window.innerHeight || document.documentElement.clientHeight;
-        const windowWidth = window.innerWidth || document.documentElement.clientWidth;
+        const windowHeight = window.innerHeight  document.documentElement.clientHeight;
+        const windowWidth = window.innerWidth  document.documentElement.clientWidth;
 
-        // 检查元素是否在视口内
+         检查元素是否在视口内
         return (
-            rect.top >= 0 &&
-            rect.left >= 0 &&
-            rect.bottom <= windowHeight &&
-            rect.right <= windowWidth
+            rect.top = 0 &&
+            rect.left = 0 &&
+            rect.bottom = windowHeight &&
+            rect.right = windowWidth
         );
     } catch (error) {
-        GM_log(`检查元素可见性时出错: ${error.message}`);
+        GM_log(`检查元素可见性时出错 ${error.message}`);
         return false;
     }
 }
 
-/**
- * 从搜索结果中查找可点击的链接
- * @param {Element} result - 搜索结果元素
- * @returns {HTMLAnchorElement|null}
- */
+
+  从搜索结果中查找可点击的链接
+  @param {Element} result - 搜索结果元素
+  @returns {HTMLAnchorElementnull}
+ 
 function findClickableLink(result) {
     if (!result) return null;
 
-    // 策略1: h2 中的链接（优先直接子元素，其次嵌套）
+     策略1 h2 中的链接（优先直接子元素，其次嵌套）
     for (const h2 of result.querySelectorAll('h2')) {
-        const link = h2.querySelector(':scope > a[href]') ||
+        const link = h2.querySelector('scope  a[href]') 
                      Array.from(h2.querySelectorAll('a[href]')).find(isValidResultLink);
         if (link) return link;
     }
 
-    // 策略2: 排除辅助链接后的第一个有效链接
+     策略2 排除辅助链接后的第一个有效链接
     const allLinks = result.querySelectorAll('a[href]');
     for (const link of allLinks) {
         if (!link.classList.contains('tilk') &&
@@ -4334,28 +4459,28 @@ function findClickableLink(result) {
         }
     }
 
-    // 策略3: 任意有效链接（保底）
-    return Array.from(allLinks).find(isValidResultLink) || null;
+     策略3 任意有效链接（保底）
+    return Array.from(allLinks).find(isValidResultLink)  null;
 }
 
-/**
- * 验证链接是否为有效的搜索结果链接
- * @param {HTMLAnchorElement} link
- * @returns {boolean}
- */
+
+  验证链接是否为有效的搜索结果链接
+  @param {HTMLAnchorElement} link
+  @returns {boolean}
+ 
 function isValidResultLink(link) {
-    if (!link || !link.href) return false;
+    if (!link  !link.href) return false;
 
     const href = link.href;
 
-    // 必须是 http/https 协议
-    if (!href.startsWith('http://') && !href.startsWith('https://')) {
+     必须是 httphttps 协议
+    if (!href.startsWith('http') && !href.startsWith('https')) {
         return false;
     }
 
-    // 排除内部链接
-    if (href.includes('bing.com') ||
-        href.includes('msn.com') ||
+     排除内部链接
+    if (href.includes('bing.com') 
+        href.includes('msn.com') 
         href.includes('microsoft.com')) {
         return false;
     }
@@ -4363,20 +4488,20 @@ function isValidResultLink(link) {
     return true;
 }
 
-/**
- * 在页面中查找任意有效的外部链接（降级策略）
- * @returns {HTMLAnchorElement|null}
- */
+
+  在页面中查找任意有效的外部链接（降级策略）
+  @returns {HTMLAnchorElementnull}
+ 
 function findAnyValidLinkOnPage() {
     const allLinks = Array.from(document.querySelectorAll('a[href]'));
 
     if (allLinks.length === 0) return null;
 
-    // 过滤出可见的有效外部链接
-    const validLinks = allLinks.filter(link => {
+     过滤出可见的有效外部链接
+    const validLinks = allLinks.filter(link = {
         if (!isValidResultLink(link)) return false;
 
-        // 排除导航、页脚、侧边栏、广告等区域
+         排除导航、页脚、侧边栏、广告等区域
         if (link.closest('nav, footer, header, #b_header, #b_footer, .b_nav, .b_footer, .b_sideBlade, .ads, .advertisement, #b_context')) {
             return false;
         }
@@ -4384,19 +4509,19 @@ function findAnyValidLinkOnPage() {
         return isElementVisible(link);
     });
 
-    // 如果没有可见链接，尝试任意有效链接
-    const candidates = validLinks.length > 0 ? validLinks : allLinks.filter(isValidResultLink);
+     如果没有可见链接，尝试任意有效链接
+    const candidates = validLinks.length  0  validLinks  allLinks.filter(isValidResultLink);
 
     if (candidates.length === 0) return null;
 
-    // 随机选择一个
-    return candidates[Math.floor(Math.random() * candidates.length)];
+     随机选择一个
+    return candidates[Math.floor(Math.random()  candidates.length)];
 }
 
-/**
- * 模拟人工操作点击链接
- * @param {HTMLAnchorElement} link - 要点击的链接元素
- */
+
+  模拟人工操作点击链接
+  @param {HTMLAnchorElement} link - 要点击的链接元素
+ 
 function simulateHumanClick(link) {
     try {
         if (link.dataset.clicked === 'true') {
@@ -4406,15 +4531,15 @@ function simulateHumanClick(link) {
         link.dataset.clicked = 'true';
 
         const newTab = GM_openInTab(link.href, {
-            active: false,
-            insert: true,
-            setParent: true
+            active false,
+            insert true,
+            setParent true
         });
         GM_log('已通过 GM_openInTab 打开链接');
 
-        // 关闭定时器不纳入 utils.addTimer：标签页由本函数打开，必须保证无论任务是否终止都能回收
-        setTimeout(() => {
-            const closeTab = tab => {
+         关闭定时器不纳入 utils.addTimer：标签页由本函数打开，必须保证无论任务是否终止都能回收
+        setTimeout(() = {
+            const closeTab = tab = {
                 if (tab && typeof tab.close === 'function') {
                     tab.close();
                     GM_log('已关闭搜索结果标签页');
@@ -4426,74 +4551,74 @@ function simulateHumanClick(link) {
             try {
                 if (!closeTab(newTab) && typeof GM_saveTab === 'function') {
                     Promise.resolve(GM_saveTab(newTab))
-                        .then(savedTab => closeTab(savedTab))
-                        .catch(() => {});
+                        .then(savedTab = closeTab(savedTab))
+                        .catch(() = {});
                 }
             } catch (e) {
-                GM_log(`关闭搜索结果标签页失败: ${e.message}`);
+                GM_log(`关闭搜索结果标签页失败 ${e.message}`);
             }
-        }, CONFIG.tasksCloseTabDelay || 1500);
+        }, CONFIG.tasksCloseTabDelay  1500);
 
     } catch (error) {
-        GM_log(`点击出错: ${error.message}`);
+        GM_log(`点击出错 ${error.message}`);
     }
 }
 
-/**
- * 任务点击流程配置（earn 日常任务与 dashboard 每日活动共用一套点击流程）
- */
+
+  任务点击流程配置（earn 日常任务与 dashboard 每日活动共用一套点击流程）
+ 
 const TASK_FLOW_CONFIG = {
-    earn: {
-        logPrefix: '[EarnTasks]',
-        pageUrl: 'https://rewards.bing.com/earn',
-        completedKey: 'earnTasksCompleted',
-        lastDateKey: 'lastEarnTasksDate',
-        injectedKey: 'earnTasksInjected',
-        injectedDateKey: 'lastEarnTasksInjectedDate',
-        incompleteKey: 'earnTasksIncompleteStreak',
-        incompleteDateKey: 'lastEarnTasksIncompleteDate',
-        skipDateKey: 'earnTasksSkipDate',
-        skipReasonKey: 'earnTasksSkipReason',
-        label: '日常任务',
-        notificationTitle: 'Bing Rewards 日常任务'
+    earn {
+        logPrefix '[EarnTasks]',
+        pageUrl 'httpsrewards.bing.comearn',
+        completedKey 'earnTasksCompleted',
+        lastDateKey 'lastEarnTasksDate',
+        injectedKey 'earnTasksInjected',
+        injectedDateKey 'lastEarnTasksInjectedDate',
+        incompleteKey 'earnTasksIncompleteStreak',
+        incompleteDateKey 'lastEarnTasksIncompleteDate',
+        skipDateKey 'earnTasksSkipDate',
+        skipReasonKey 'earnTasksSkipReason',
+        label '日常任务',
+        notificationTitle 'Bing Rewards 日常任务'
     },
-    dashboard: {
-        logPrefix: '[DashboardTasks]',
-        pageUrl: 'https://rewards.bing.com/dashboard',
-        completedKey: 'dashboardTasksCompleted',
-        lastDateKey: 'lastDashboardTasksDate',
-        injectedKey: 'dashboardTasksInjected',
-        injectedDateKey: 'lastDashboardTasksInjectedDate',
-        incompleteKey: 'dashboardTasksIncompleteStreak',
-        incompleteDateKey: 'lastDashboardTasksIncompleteDate',
-        skipDateKey: 'dashboardTasksSkipDate',
-        skipReasonKey: 'dashboardTasksSkipReason',
-        label: 'dashboard 每日活动任务',
-        notificationTitle: 'Bing Rewards 每日活动'
+    dashboard {
+        logPrefix '[DashboardTasks]',
+        pageUrl 'httpsrewards.bing.comdashboard',
+        completedKey 'dashboardTasksCompleted',
+        lastDateKey 'lastDashboardTasksDate',
+        injectedKey 'dashboardTasksInjected',
+        injectedDateKey 'lastDashboardTasksInjectedDate',
+        incompleteKey 'dashboardTasksIncompleteStreak',
+        incompleteDateKey 'lastDashboardTasksIncompleteDate',
+        skipDateKey 'dashboardTasksSkipDate',
+        skipReasonKey 'dashboardTasksSkipReason',
+        label 'dashboard 每日活动任务',
+        notificationTitle 'Bing Rewards 每日活动'
     }
 };
 
-/**
- * 判断当前页面是否为 rewards.bing.com 下指定路径的页面
- */
+
+  判断当前页面是否为 rewards.bing.com 下指定路径的页面
+ 
 function isRewardsPage(pathPrefix) {
     return window.location.hostname === 'rewards.bing.com' &&
            window.location.pathname.startsWith(pathPrefix);
 }
 
-/**
- * 查找 moreactivities 区域（earn 页面日常任务容器）
- */
+
+  查找 moreactivities 区域（earn 页面日常任务容器）
+ 
 function findMoreActivitiesSection() {
-    return document.querySelector('#moreactivities') ||
-           document.querySelector('section[id*="moreactivities"]') ||
-           document.querySelector('[id*="moreActivities"]') ||
-           document.querySelector('[id*="more-activities"]');
+    return document.querySelector('#moreactivities') 
+           document.querySelector('section[id=moreactivities]') 
+           document.querySelector('[id=moreActivities]') 
+           document.querySelector('[id=more-activities]');
 }
 
-/**
- * 关闭当前标签页（任务页处理完成后调用）
- */
+
+  关闭当前标签页（任务页处理完成后调用）
+ 
 function closeCurrentTab(logPrefix) {
     if (typeof GM_closeTab !== 'undefined') {
         log(`${logPrefix} 关闭当前标签页`);
@@ -4501,56 +4626,56 @@ function closeCurrentTab(logPrefix) {
     }
 }
 
-/**
- * 标记任务点击流程当日已完成（完成标记 + 日期戳，供每日仅执行一次判断）
- */
+
+  标记任务点击流程当日已完成（完成标记 + 日期戳，供每日仅执行一次判断）
+ 
 function markTaskFlowCompleted(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     GM_setValue(conf.completedKey, true);
     GM_setValue(conf.lastDateKey, utils.getTodayStr());
-    // 已完成则清零超时计数，避免影响后续「连续未完成」判定
+     已完成则清零超时计数，避免影响后续「连续未完成」判定
     resetTaskFlowIncompleteStreak(flowName);
 }
 
-/**
- * 任务点击流程当日是否已完成（每日仅执行一次）
- */
+
+  任务点击流程当日是否已完成（每日仅执行一次）
+ 
 function isTaskFlowCompletedToday(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     return GM_getValue(conf.lastDateKey, '') === utils.getTodayStr() &&
            GM_getValue(conf.completedKey, false);
 }
 
-/**
- * 标记目标页脚本已注入成功（注入留痕，供主页面判断本次跳转是否有效）
- */
+
+  标记目标页脚本已注入成功（注入留痕，供主页面判断本次跳转是否有效）
+ 
 function markTaskFlowInjected(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     GM_setValue(conf.injectedKey, true);
     GM_setValue(conf.injectedDateKey, utils.getTodayStr());
 }
 
-/**
- * 目标页脚本当日是否已注入成功
- */
+
+  目标页脚本当日是否已注入成功
+ 
 function isTaskFlowInjectedToday(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     return GM_getValue(conf.injectedDateKey, '') === utils.getTodayStr() &&
            GM_getValue(conf.injectedKey, false);
 }
 
-/**
- * 任务页「脚本已注入但超时未完成」的当日连续次数（日期戳跨天自动归零）
- */
+
+  任务页「脚本已注入但超时未完成」的当日连续次数（日期戳跨天自动归零）
+ 
 function getTaskFlowIncompleteStreak(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     if (GM_getValue(conf.incompleteDateKey, '') !== utils.getTodayStr()) return 0;
     return GM_getValue(conf.incompleteKey, 0);
 }
 
-/**
- * 累加「脚本已注入但超时未完成」次数，返回累加后的连续次数
- */
+
+  累加「脚本已注入但超时未完成」次数，返回累加后的连续次数
+ 
 function increaseTaskFlowIncompleteStreak(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     const streak = getTaskFlowIncompleteStreak(flowName) + 1;
@@ -4559,42 +4684,42 @@ function increaseTaskFlowIncompleteStreak(flowName) {
     return streak;
 }
 
-/**
- * 清零「脚本已注入但超时未完成」连续次数
- */
+
+  清零「脚本已注入但超时未完成」连续次数
+ 
 function resetTaskFlowIncompleteStreak(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     GM_setValue(conf.incompleteKey, 0);
     GM_setValue(conf.incompleteDateKey, utils.getTodayStr());
 }
 
-/**
- * 标记当日放弃跳转该页面：当天后续不再跳转（日期戳跨天自动失效）
- * @param {string} reason 放弃原因：'not-injected' 脚本未注入 / 'incomplete' 连续多次超时未完成
- */
+
+  标记当日放弃跳转该页面：当天后续不再跳转（日期戳跨天自动失效）
+  @param {string} reason 放弃原因：'not-injected' 脚本未注入  'incomplete' 连续多次超时未完成
+ 
 function markTaskFlowSkippedToday(flowName, reason) {
     const conf = TASK_FLOW_CONFIG[flowName];
     GM_setValue(conf.skipDateKey, utils.getTodayStr());
     GM_setValue(conf.skipReasonKey, reason);
 }
 
-/**
- * 当日是否已放弃跳转该页面
- */
+
+  当日是否已放弃跳转该页面
+ 
 function isTaskFlowSkippedToday(flowName) {
     return GM_getValue(TASK_FLOW_CONFIG[flowName].skipDateKey, '') === utils.getTodayStr();
 }
 
-/**
- * 当日放弃跳转的原因：'not-injected' 未注入 / 'incomplete' 连续超时未完成
- */
+
+  当日放弃跳转的原因：'not-injected' 未注入  'incomplete' 连续超时未完成
+ 
 function getTaskFlowSkipReason(flowName) {
     return GM_getValue(TASK_FLOW_CONFIG[flowName].skipReasonKey, 'not-injected');
 }
 
-/**
- * 检查是否需要执行任务页点击，打开对应页面并等待处理完成（earn/dashboard 共用）
- */
+
+  检查是否需要执行任务页点击，打开对应页面并等待处理完成（earndashboard 共用）
+ 
 async function checkAndExecuteTasksOnPage(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     const today = utils.getTodayStr();
@@ -4604,28 +4729,28 @@ async function checkAndExecuteTasksOnPage(flowName) {
         return true;
     }
 
-    // 当日已放弃跳转（未注入 / 连续超时未完成）：不再跳转该页面，避免每次搜索都空等一次超时
+     当日已放弃跳转（未注入  连续超时未完成）：不再跳转该页面，避免每次搜索都空等一次超时
     if (isTaskFlowSkippedToday(flowName)) {
-        log(`${conf.label}页面当日已放弃跳转（${getTaskFlowSkipReason(flowName) === 'incomplete' ? '连续超时未完成' : '脚本未注入'}），今天不再跳转该页面`);
+        log(`${conf.label}页面当日已放弃跳转（${getTaskFlowSkipReason(flowName) === 'incomplete'  '连续超时未完成'  '脚本未注入'}），今天不再跳转该页面`);
         return true;
     }
 
     log(`准备执行 ${conf.label}点击...`);
 
-    // 本次跳转的注入证据：目标页脚本注入后置 true，超时时据此判定是否值得再试
+     本次跳转的注入证据：目标页脚本注入后置 true，超时时据此判定是否值得再试
     GM_setValue(conf.injectedKey, false);
 
-    return new Promise((resolve) => {
+    return new Promise((resolve) = {
         const taskParam = utils.getRandomStartParam();
-        const taskTab = GM_openInTab(`${conf.pageUrl}?${taskParam}=1`, {
-            active: true,
-            insert: true,
-            setParent: true
+        const taskTab = GM_openInTab(`${conf.pageUrl}${taskParam}=1`, {
+            active true,
+            insert true,
+            setParent true
         });
 
-        // 完成与超时两个出口互斥：先到者生效，避免超时回调在已完成后重复计数
+         完成与超时两个出口互斥：先到者生效，避免超时回调在已完成后重复计数
         let settled = false;
-        const settle = () => {
+        const settle = () = {
             if (settled) return false;
             settled = true;
             clearInterval(checkInterval);
@@ -4633,7 +4758,7 @@ async function checkAndExecuteTasksOnPage(flowName) {
             return true;
         };
 
-        const checkInterval = setInterval(() => {
+        const checkInterval = setInterval(() = {
             if (GM_getValue(conf.completedKey, false)) {
                 if (!settle()) return;
                 log(`${conf.label}点击已完成`);
@@ -4641,26 +4766,26 @@ async function checkAndExecuteTasksOnPage(flowName) {
             }
         }, 1000);
 
-        // 超时兜底：防止页面卡死导致主流程阻塞
-        const timeoutTimer = setTimeout(() => {
+         超时兜底：防止页面卡死导致主流程阻塞
+        const timeoutTimer = setTimeout(() = {
             if (!settle()) return;
             if (taskTab && typeof taskTab.close === 'function') {
                 try {
                     taskTab.close();
                 } catch (e) {
-                    log(`关闭标签页失败: ${e.message}`);
+                    log(`关闭标签页失败 ${e.message}`);
                 }
             }
 
-            // 未注入则当天不再跳转该页面；
-            // 已注入但超时未完成则累计连续次数，达到阈值后同样当天放弃跳转
+             未注入则当天不再跳转该页面；
+             已注入但超时未完成则累计连续次数，达到阈值后同样当天放弃跳转
             if (isTaskFlowInjectedToday(flowName)) {
                 const streak = increaseTaskFlowIncompleteStreak(flowName);
-                if (streak >= CONFIG.taskFlowIncompleteLimit) {
+                if (streak = CONFIG.taskFlowIncompleteLimit) {
                     markTaskFlowSkippedToday(flowName, 'incomplete');
                     log(`${conf.label}页面已注入但连续 ${streak} 次超时未完成，当天后续不再跳转该页面`);
                 } else {
-                    log(`${conf.label}页面脚本已注入但未完成点击（${streak}/${CONFIG.taskFlowIncompleteLimit}），下次搜索继续尝试`);
+                    log(`${conf.label}页面脚本已注入但未完成点击（${streak}${CONFIG.taskFlowIncompleteLimit}），下次搜索继续尝试`);
                 }
             } else {
                 markTaskFlowSkippedToday(flowName, 'not-injected');
@@ -4672,77 +4797,77 @@ async function checkAndExecuteTasksOnPage(flowName) {
     });
 }
 
-/**
- * 滚动到日常任务区域
- */
+
+  滚动到日常任务区域
+ 
 function scrollToDailyTasks() {
     log('[EarnTasks] 正在滚动到日常任务区域...');
 
     const moreActivitiesSection = findMoreActivitiesSection();
-    
+
     if (moreActivitiesSection) {
-        moreActivitiesSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        moreActivitiesSection.scrollIntoView({ behavior 'smooth', block 'center' });
         log('[EarnTasks] 已找到并滚动到 moreactivities 区域');
         return true;
     }
 
-    const dailyTaskSection = document.querySelector('[data-section="dailyset"]') ||
-                              document.querySelector('[id*="dailyset"]') ||
-                              document.querySelector('[class*="daily"]') ||
-                              document.querySelector('[class*="Daily"]') ||
-                              document.querySelector('.moreActivities') ||
-                              document.querySelector('[data-bi-slot*="daily"]') ||
-                              document.querySelector('[data-m*="daily"]');
-    
+    const dailyTaskSection = document.querySelector('[data-section=dailyset]') 
+                              document.querySelector('[id=dailyset]') 
+                              document.querySelector('[class=daily]') 
+                              document.querySelector('[class=Daily]') 
+                              document.querySelector('.moreActivities') 
+                              document.querySelector('[data-bi-slot=daily]') 
+                              document.querySelector('[data-m=daily]');
+
     if (dailyTaskSection) {
-        dailyTaskSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        dailyTaskSection.scrollIntoView({ behavior 'smooth', block 'center' });
         log('[EarnTasks] 已找到并滚动到日常任务区域');
         return true;
     }
 
-    const headings = Array.from(document.querySelectorAll('h2, h3, h4, [role="heading"]'));
-    const dailyHeading = headings.find(h => 
-        /日常|每日|daily|Daily|Daily\s*Set/i.test(h.textContent || h.innerText)
+    const headings = Array.from(document.querySelectorAll('h2, h3, h4, [role=heading]'));
+    const dailyHeading = headings.find(h =
+        日常每日dailyDailyDailysSeti.test(h.textContent  h.innerText)
     );
-    
+
     if (dailyHeading) {
-        dailyHeading.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        dailyHeading.scrollIntoView({ behavior 'smooth', block 'center' });
         log('[EarnTasks] 通过标题找到并滚动到日常任务区域');
         return true;
     }
 
     window.scrollTo({
-        top: document.body.scrollHeight * 0.3,
-        behavior: 'smooth'
+        top document.body.scrollHeight  0.3,
+        behavior 'smooth'
     });
     log('[EarnTasks] 使用默认滚动位置');
     return false;
 }
 
-/**
- * 判断任务文案中的进度是否为未完成（X/Y 且 X < Y）
- * 不使用正则后行断言（旧版 Safari 不支持）：先捕获候选，再用前后字符排除日期形态（如 8/28/2026）
- */
+
+  判断任务文案中的进度是否为未完成（XY 且 X  Y）
+  不使用正则后行断言（旧版 Safari 不支持）：先捕获候选，再用前后字符排除日期形态（如 8282026）
+ 
 function isIncompleteProgress(text) {
-    const candidate = /(\d{1,3})\s*\/\s*(\d{1,4})/g;
+    const candidate = (d{1,3})ss(d{1,4})g;
     let match;
     while ((match = candidate.exec(text)) !== null) {
         const before = text.charAt(match.index - 1);
         const after = text.charAt(match.index + match[0].length);
-        if (/[\d/]/.test(before) || /[\d/]/.test(after)) continue;
+        if ([d].test(before)  [d].test(after)) continue;
         if (match[1] !== match[2]) return true;
     }
     return false;
 }
 
-/**
- * 从任务容器中收集未完成的任务卡片（earn 日常任务与 dashboard 每日活动共用）
- * 完成态判定、积分识别、去重与任务对象构造统一在此，两处 DOM 差异通过入参注入
- * @param {Element|null} container 任务区域容器
- * @param {object} opts selector 任务元素选择器 / logPrefix 日志前缀 / missingResult 容器缺失时的返回值
- *                      skipLocked 跳过锁定态 / progressAware 按 X/Y 进度判定未完成 / skipHref 额外 href 过滤
- * @returns {Array<object>|null} 容器缺失时返回 missingResult（null 表示 DOM 结构变化，由调用方直接结束流程）
- */
+
+  从任务容器中收集未完成的任务卡片（earn 日常任务与 dashboard 每日活动共用）
+  完成态判定、积分识别、去重与任务对象构造统一在此，两处 DOM 差异通过入参注入
+  @param {Elementnull} container 任务区域容器
+  @param {object} opts selector 任务元素选择器  logPrefix 日志前缀  missingResult 容器缺失时的返回值
+                       skipLocked 跳过锁定态  progressAware 按 XY 进度判定未完成  skipHref 额外 href 过滤
+  @returns {Arrayobjectnull} 容器缺失时返回 missingResult（null 表示 DOM 结构变化，由调用方直接结束流程）
+ 
 function collectIncompleteTasks(container, opts) {
     const {
         selector,
@@ -4761,73 +4886,73 @@ function collectIncompleteTasks(container, opts) {
     const candidates = container.querySelectorAll(selector);
     log(`${logPrefix} 在任务区域找到 ${candidates.length} 个可能的任务元素`);
 
-    // 状态文案（来自 ActivityCard.Status 国际化资源）
-    // completed=已完成, inProgress=正在进行, notStarted=未开始, activated=已激活, locked=已锁定
-    const completedPattern = /已完成|complete|completed|✓|✔|done|finished/i;
-    const lockedPattern = /已锁定|locked/i;
+     状态文案（来自 ActivityCard.Status 国际化资源）
+     completed=已完成, inProgress=正在进行, notStarted=未开始, activated=已激活, locked=已锁定
+    const completedPattern = 已完成completecompleted✓✔donefinishedi;
+    const lockedPattern = 已锁定lockedi;
 
     const tasks = [];
     const processedHrefs = new Set();
     const processedElements = new Set();
 
-    candidates.forEach(element => {
-        // 跳过已处理的元素
+    candidates.forEach(element = {
+         跳过已处理的元素
         if (processedElements.has(element)) return;
         processedElements.add(element);
 
         const href = element.getAttribute('href');
         if (href) {
-            if ((skipHref && skipHref(href)) || processedHrefs.has(href)) return;
+            if ((skipHref && skipHref(href))  processedHrefs.has(href)) return;
             processedHrefs.add(href);
         }
 
-        const taskText = element.textContent || element.innerText || '';
-        // 跳过文本内容太少的元素（可能是图标或装饰元素）
-        if (taskText.trim().length < 2) return;
+        const taskText = element.textContent  element.innerText  '';
+         跳过文本内容太少的元素（可能是图标或装饰元素）
+        if (taskText.trim().length  2) return;
 
-        const ariaLabel = element.getAttribute('aria-label') || '';
+        const ariaLabel = element.getAttribute('aria-label')  '';
 
-        // 完成状态检测：文本、子元素 class、aria-label 多重判定
-        if (completedPattern.test(taskText) || completedPattern.test(ariaLabel) ||
-            element.querySelector('[class*="complete"], [class*="Complete"], [class*="done"], [class*="Done"]')) {
-            log(`${logPrefix} 任务已完成，跳过: ${taskText.substring(0, 30)}...`);
+         完成状态检测：文本、子元素 class、aria-label 多重判定
+        if (completedPattern.test(taskText)  completedPattern.test(ariaLabel) 
+            element.querySelector('[class=complete], [class=Complete], [class=done], [class=Done]')) {
+            log(`${logPrefix} 任务已完成，跳过 ${taskText.substring(0, 30)}...`);
             return;
         }
 
-        // 锁定状态任务不可点击，跳过
-        if (skipLocked && (lockedPattern.test(taskText) || lockedPattern.test(ariaLabel) ||
-            element.querySelector('[class*="lock"]') || element.getAttribute('aria-disabled') === 'true')) {
-            log(`${logPrefix} 任务已锁定，跳过: ${taskText.substring(0, 30)}...`);
+         锁定状态任务不可点击，跳过
+        if (skipLocked && (lockedPattern.test(taskText)  lockedPattern.test(ariaLabel) 
+            element.querySelector('[class=lock]')  element.getAttribute('aria-disabled') === 'true')) {
+            log(`${logPrefix} 任务已锁定，跳过 ${taskText.substring(0, 30)}...`);
             return;
         }
 
-        // 积分识别：+N 形式
-        const pointsMatch = taskText.match(/\+(\d+)/) || element.outerHTML.match(/\+(\d+)/);
-        const points = pointsMatch ? parseInt(pointsMatch[1], 10) : 0;
+         积分识别：+N 形式
+        const pointsMatch = taskText.match(+(d+))  element.outerHTML.match(+(d+));
+        const points = pointsMatch  parseInt(pointsMatch[1], 10)  0;
         const incompleteByProgress = progressAware && isIncompleteProgress(taskText);
         const isTaskLink = progressAware && !!href && href.includes('task');
 
-        // earn 要求必须有积分；dashboard 允许积分、进度未完成、任务链接任一命中
-        if (points <= 0 && !incompleteByProgress && !isTaskLink) return;
+         earn 要求必须有积分；dashboard 允许积分、进度未完成、任务链接任一命中
+        if (points = 0 && !incompleteByProgress && !isTaskLink) return;
 
         tasks.push({
-            element: element,
-            href: href,
-            points: points,
-            taskId: href || element.id || element.className || Date.now().toString(36),
-            text: taskText.substring(0, 100)
+            element element,
+            href href,
+            points points,
+            taskId href  element.id  element.className  Date.now().toString(36),
+            text taskText.substring(0, 100)
         });
 
-        log(`${logPrefix} 找到未完成任务: ${taskText.substring(0, 50)}...${points > 0 ? ` (+${points}分)` : ''}`);
+        log(`${logPrefix} 找到未完成任务 ${taskText.substring(0, 50)}...${points  0  ` (+${points}分)`  ''}`);
     });
 
     log(`${logPrefix} 共找到 ${tasks.length} 个未完成任务`);
     return tasks;
 }
 
-/**
- * 点击任务卡片（earn 与 dashboard 共用）
- */
+
+  点击任务卡片（earn 与 dashboard 共用）
+ 
 async function clickTask(task, flowName) {
     const { logPrefix } = TASK_FLOW_CONFIG[flowName];
     const flowState = state.taskFlows[flowName];
@@ -4837,17 +4962,17 @@ async function clickTask(task, flowName) {
         return false;
     }
 
-    log(`${logPrefix} 正在点击任务: ${task.text.substring(0, 50)}...${task.points > 0 ? ` (+${task.points}分)` : ''}`);
+    log(`${logPrefix} 正在点击任务 ${task.text.substring(0, 50)}...${task.points  0  ` (+${task.points}分)`  ''}`);
 
     try {
-        task.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        task.element.scrollIntoView({ behavior 'smooth', block 'center' });
         await sleep(50);
 
         const rect = task.element.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
+        const x = rect.left + rect.width  2;
+        const y = rect.top + rect.height  2;
 
-        log(`${logPrefix} 模拟点击任务元素，位置: (${Math.round(x)}, ${Math.round(y)})`);
+        log(`${logPrefix} 模拟点击任务元素，位置 (${Math.round(x)}, ${Math.round(y)})`);
 
         const originalTarget = task.element.getAttribute('target');
         const windowName = 'bingTask_' + Date.now();
@@ -4856,11 +4981,11 @@ async function clickTask(task, flowName) {
         const mouseEvents = ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click'];
         for (const eventType of mouseEvents) {
             const event = new MouseEvent(eventType, {
-                bubbles: true,
-                cancelable: true,
-                view: unsafeWindow,
-                clientX: x,
-                clientY: y
+                bubbles true,
+                cancelable true,
+                view unsafeWindow,
+                clientX x,
+                clientY y
             });
             task.element.dispatchEvent(event);
         }
@@ -4868,16 +4993,16 @@ async function clickTask(task, flowName) {
         await sleep(100);
 
         flowState.clicked.add(task.taskId);
-        log(`${logPrefix} 成功点击任务: ${task.taskId}`);
+        log(`${logPrefix} 成功点击任务 ${task.taskId}`);
 
         try {
             const taskWindow = window.open('', windowName);
             if (taskWindow && !taskWindow.closed) {
                 taskWindow.close();
-                log(`${logPrefix} 已关闭任务标签页: ${task.taskId}`);
+                log(`${logPrefix} 已关闭任务标签页 ${task.taskId}`);
             }
         } catch (e) {
-            log(`${logPrefix} 关闭任务标签页失败: ${e.message}`);
+            log(`${logPrefix} 关闭任务标签页失败 ${e.message}`);
         }
 
         if (originalTarget) {
@@ -4888,32 +5013,32 @@ async function clickTask(task, flowName) {
 
         return true;
     } catch (error) {
-        log(`${logPrefix} 模拟点击失败: ${error.message}`);
+        log(`${logPrefix} 模拟点击失败 ${error.message}`);
 
         try {
-            log(`${logPrefix} 尝试备用方案: element.click()`);
+            log(`${logPrefix} 尝试备用方案 element.click()`);
             task.element.click();
             flowState.clicked.add(task.taskId);
-            log(`${logPrefix} 备用方案成功: ${task.taskId}`);
+            log(`${logPrefix} 备用方案成功 ${task.taskId}`);
             await sleep(50);
             return true;
         } catch (fallbackError) {
-            log(`${logPrefix} 备用方案也失败: ${fallbackError.message}`);
+            log(`${logPrefix} 备用方案也失败 ${fallbackError.message}`);
             return false;
         }
     }
 }
 
-/**
- * 处理任务点击（earn 与 dashboard 共用流程）
- * @param {string} flowName 流程标识：'earn' 或 'dashboard'
- * @param {Function} findTasks 异步函数，返回待办任务数组；返回 null 表示任务区域缺失，直接结束
- */
+
+  处理任务点击（earn 与 dashboard 共用流程）
+  @param {string} flowName 流程标识：'earn' 或 'dashboard'
+  @param {Function} findTasks 异步函数，返回待办任务数组；返回 null 表示任务区域缺失，直接结束
+ 
 async function processTasks(flowName, findTasks) {
     const conf = TASK_FLOW_CONFIG[flowName];
     const flowState = state.taskFlows[flowName];
 
-    // 当日已完成则跳过（每日仅执行一次）
+     当日已完成则跳过（每日仅执行一次）
     if (isTaskFlowCompletedToday(flowName)) {
         log(`今日 ${conf.label}点击已完成，跳过`);
         await sleep(50);
@@ -4932,15 +5057,15 @@ async function processTasks(flowName, findTasks) {
     try {
         let tasks = await findTasks();
 
-        // 未找到任务时等待页面加载后重试（区域缺失不重试，交由下方直接结束）
-        while (Array.isArray(tasks) && tasks.length === 0 && flowState.retryCount < CONFIG.tasksMaxRetries) {
+         未找到任务时等待页面加载后重试（区域缺失不重试，交由下方直接结束）
+        while (Array.isArray(tasks) && tasks.length === 0 && flowState.retryCount  CONFIG.tasksMaxRetries) {
             flowState.retryCount++;
-            log(`${conf.logPrefix} 等待 ${CONFIG.tasksRetryDelay}ms 后重试 (${flowState.retryCount}/${CONFIG.tasksMaxRetries})`);
+            log(`${conf.logPrefix} 等待 ${CONFIG.tasksRetryDelay}ms 后重试 (${flowState.retryCount}${CONFIG.tasksMaxRetries})`);
             await sleep(CONFIG.tasksRetryDelay);
             tasks = await findTasks();
         }
 
-        // 任务区域缺失（DOM 结构变化），直接标记完成并关闭页面
+         任务区域缺失（DOM 结构变化），直接标记完成并关闭页面
         if (tasks === null) {
             markTaskFlowCompleted(flowName);
             log(`${conf.logPrefix} 已设置完成标记`);
@@ -4951,7 +5076,7 @@ async function processTasks(flowName, findTasks) {
 
         if (tasks.length === 0) {
             log(`${conf.logPrefix} 已达到最大重试次数，确认没有未完成任务`);
-            markTaskFlowCompleted(flowName);   // 写 completedKey + 日期戳，面板与日志一致
+            markTaskFlowCompleted(flowName);    写 completedKey + 日期戳，面板与日志一致
             log(`${conf.logPrefix} 已设置完成标记`);
             await sleep(50);
             closeCurrentTab(conf.logPrefix);
@@ -4970,9 +5095,9 @@ async function processTasks(flowName, findTasks) {
 
         if (typeof GM_notification !== 'undefined') {
             GM_notification({
-                text: `已完成 ${flowState.clicked.size} 个 ${conf.label} 点击`,
-                title: conf.notificationTitle,
-                timeout: 3000
+                text `已完成 ${flowState.clicked.size} 个 ${conf.label} 点击`,
+                title conf.notificationTitle,
+                timeout 3000
             });
         }
 
@@ -4983,25 +5108,25 @@ async function processTasks(flowName, findTasks) {
     }
 }
 
-/**
- * earn 页面任务查找：滚动定位 → 等待加载 → 查找未完成任务卡片
- */
+
+  earn 页面任务查找：滚动定位 → 等待加载 → 查找未完成任务卡片
+ 
 async function findAndPrepareEarnTasks() {
     scrollToDailyTasks();
     await sleep(CONFIG.tasksScrollDelay);
     return collectIncompleteTasks(findMoreActivitiesSection(), {
-        selector: 'a[href][target="_blank"]',
-        logPrefix: TASK_FLOW_CONFIG.earn.logPrefix,
-        missingResult: []
+        selector 'a[href][target=_blank]',
+        logPrefix TASK_FLOW_CONFIG.earn.logPrefix,
+        missingResult []
     });
 }
 
-/**
- * dashboard 页面任务查找：等待 #dailyset 加载 → 滚动定位 → 查找未完成任务卡片
- * 区域缺失时返回 null（与「未找到任务」区分，不重试直接结束）
- */
+
+  dashboard 页面任务查找：等待 #dailyset 加载 → 滚动定位 → 查找未完成任务卡片
+  区域缺失时返回 null（与「未找到任务」区分，不重试直接结束）
+ 
 async function findAndPrepareDashboardTasks() {
-    // 等待 #dailyset 区域加载，应对页面元素加载延迟
+     等待 #dailyset 区域加载，应对页面元素加载延迟
     const dailySetSection = await waitForDashboardDailySet();
 
     if (!dailySetSection) {
@@ -5012,55 +5137,55 @@ async function findAndPrepareDashboardTasks() {
     scrollToDashboardDailySet(dailySetSection);
     await sleep(CONFIG.tasksScrollDelay);
 
-    // 任务卡片仍在加载中（检测到 loading 占位符）时不解析，返回空数组由上层重试
-    const placeholders = dailySetSection.querySelectorAll('.animate-pulse, [class*="pulse"], [class*="skeleton"], [class*="placeholder"]');
-    if (placeholders.length > 0) {
+     任务卡片仍在加载中（检测到 loading 占位符）时不解析，返回空数组由上层重试
+    const placeholders = dailySetSection.querySelectorAll('.animate-pulse, [class=pulse], [class=skeleton], [class=placeholder]');
+    if (placeholders.length  0) {
         log('[DashboardTasks] 任务卡片仍在加载中（检测到 loading 占位符），返回空数组');
         return [];
     }
 
     return collectIncompleteTasks(dailySetSection, {
-        selector: 'a[href], [role="button"], .card, [class*="card"]',
-        logPrefix: TASK_FLOW_CONFIG.dashboard.logPrefix,
-        missingResult: null,
-        skipLocked: true,
-        progressAware: true,
-        skipHref: href => href === '/earn' || href.startsWith('#')
+        selector 'a[href], [role=button], .card, [class=card]',
+        logPrefix TASK_FLOW_CONFIG.dashboard.logPrefix,
+        missingResult null,
+        skipLocked true,
+        progressAware true,
+        skipHref href = href === 'earn'  href.startsWith('#')
     });
 }
 
-/**
- * 等待 #dailyset 区域加载完成（应对页面元素加载延迟）
- * 通过轮询 + MutationObserver 双重机制检测，超时后返回 null
- * 不仅等待 #dailyset 区域出现，还要等待任务卡片实际加载完成
- */
+
+  等待 #dailyset 区域加载完成（应对页面元素加载延迟）
+  通过轮询 + MutationObserver 双重机制检测，超时后返回 null
+  不仅等待 #dailyset 区域出现，还要等待任务卡片实际加载完成
+ 
 function waitForDashboardDailySet(timeout = 25000) {
-    return new Promise((resolve) => {
+    return new Promise((resolve) = {
         const selectors = [
             '#dailyset',
-            'section[id*="dailyset"]',
-            '[data-section="dailyset"]'
+            'section[id=dailyset]',
+            '[data-section=dailyset]'
         ];
 
-        const findDailySet = () => selectors.reduce((found, sel) => found || document.querySelector(sel), null);
+        const findDailySet = () = selectors.reduce((found, sel) = found  document.querySelector(sel), null);
 
         let dailySetSection = findDailySet();
 
-        // 检查是否还有 loading 占位符（React 服务端渲染的骨架屏）
-        const hasLoadingPlaceholders = () => {
+         检查是否还有 loading 占位符（React 服务端渲染的骨架屏）
+        const hasLoadingPlaceholders = () = {
             if (!dailySetSection) return true;
-            const placeholders = dailySetSection.querySelectorAll('.animate-pulse, [class*="pulse"], [class*="skeleton"], [class*="placeholder"]');
-            return placeholders.length > 0;
+            const placeholders = dailySetSection.querySelectorAll('.animate-pulse, [class=pulse], [class=skeleton], [class=placeholder]');
+            return placeholders.length  0;
         };
 
-        // 检查是否有实际的任务链接
-        const hasTaskLinks = () => {
+         检查是否有实际的任务链接
+        const hasTaskLinks = () = {
             if (!dailySetSection) return false;
-            const links = dailySetSection.querySelectorAll('a[href]:not([href="/earn"])');
-            return links.length > 0;
+            const links = dailySetSection.querySelectorAll('a[href]not([href=earn])');
+            return links.length  0;
         };
 
-        // 立即检查
+         立即检查
         if (dailySetSection && !hasLoadingPlaceholders()) {
             log('[DashboardTasks] #dailyset 区域已加载完成');
             resolve(dailySetSection);
@@ -5070,12 +5195,12 @@ function waitForDashboardDailySet(timeout = 25000) {
         let observer = null;
         const startTime = Date.now();
 
-        const checkAndResolve = () => {
+        const checkAndResolve = () = {
             dailySetSection = findDailySet();
-            
+
             if (dailySetSection) {
-                // 如果没有 loading 占位符，或者有实际任务链接，说明加载完成
-                if (!hasLoadingPlaceholders() || hasTaskLinks()) {
+                 如果没有 loading 占位符，或者有实际任务链接，说明加载完成
+                if (!hasLoadingPlaceholders()  hasTaskLinks()) {
                     log('[DashboardTasks] #dailyset 区域及任务卡片已加载完成');
                     if (observer) observer.disconnect();
                     resolve(dailySetSection);
@@ -5083,39 +5208,39 @@ function waitForDashboardDailySet(timeout = 25000) {
                 }
             }
 
-            // 检查超时
-            if (Date.now() - startTime >= timeout) {
+             检查超时
+            if (Date.now() - startTime = timeout) {
                 log('[DashboardTasks] 等待 #dailyset 区域超时');
                 if (observer) observer.disconnect();
-                resolve(dailySetSection || findDailySet());
+                resolve(dailySetSection  findDailySet());
                 return true;
             }
 
             return false;
         };
 
-        // 立即检查一次
+         立即检查一次
         if (checkAndResolve()) return;
 
-        // 设置轮询检查（每 500ms 检查一次）
-        const pollInterval = setInterval(() => {
+         设置轮询检查（每 500ms 检查一次）
+        const pollInterval = setInterval(() = {
             if (checkAndResolve()) {
                 clearInterval(pollInterval);
             }
         }, 500);
 
-        observer = new MutationObserver(() => {
+        observer = new MutationObserver(() = {
             if (checkAndResolve()) {
                 clearInterval(pollInterval);
             }
         });
-        observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.body, { childList true, subtree true });
     });
 }
 
-/**
- * 滚动到 dashboard 每日活动区域（#dailyset）
- */
+
+  滚动到 dashboard 每日活动区域（#dailyset）
+ 
 function scrollToDashboardDailySet(dailySetSection) {
     log('[DashboardTasks] 正在滚动到每日活动区域...');
 
@@ -5125,28 +5250,28 @@ function scrollToDashboardDailySet(dailySetSection) {
     }
 
     try {
-        dailySetSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        dailySetSection.scrollIntoView({ behavior 'smooth', block 'center' });
         log('[DashboardTasks] 已滚动到 #dailyset 每日活动区域');
         return true;
     } catch (error) {
-        log(`[DashboardTasks] 滚动失败: ${error.message}`);
+        log(`[DashboardTasks] 滚动失败 ${error.message}`);
         return false;
     }
 }
 
 
-/**
- * 检查并启动任务
- */
+
+  检查并启动任务
+ 
 async function checkAndStartTask() {
-    // 使用每日生成的启动参数（earn/dashboard/搜索 保持一致）
+     使用每日生成的启动参数（earndashboard搜索 保持一致）
     const startParam = utils.getRandomStartParam();
     const urlParams = new URLSearchParams(window.location.search);
 
-    // 如果是 rewards.bing.com/earn 页面，执行日常任务点击（开关关闭时不执行）
-    if (isRewardsPage('/earn')) {
+     如果是 rewards.bing.comearn 页面，执行日常任务点击（开关关闭时不执行）
+    if (isRewardsPage('earn')) {
         const hasTaskParam = urlParams.has(startParam);
-        // 脚本已注入本页，留痕供主页面判断跳转是否有效（未注入时主页面当天不再重复跳转）
+         脚本已注入本页，留痕供主页面判断跳转是否有效（未注入时主页面当天不再重复跳转）
         if (hasTaskParam) markTaskFlowInjected('earn');
 
         if (CONFIG.autoClickTasks && hasTaskParam) {
@@ -5157,10 +5282,10 @@ async function checkAndStartTask() {
         return;
     }
 
-    // 如果是 rewards.bing.com/dashboard 页面，执行每日活动区域任务点击（开关关闭时不执行）
-    if (isRewardsPage('/dashboard')) {
+     如果是 rewards.bing.comdashboard 页面，执行每日活动区域任务点击（开关关闭时不执行）
+    if (isRewardsPage('dashboard')) {
         const hasTaskParam = urlParams.has(startParam);
-        // 脚本已注入本页，留痕供主页面判断跳转是否有效（未注入时主页面当天不再重复跳转）
+         脚本已注入本页，留痕供主页面判断跳转是否有效（未注入时主页面当天不再重复跳转）
         if (hasTaskParam) markTaskFlowInjected('dashboard');
 
         if (CONFIG.autoClickTasks && hasTaskParam) {
@@ -5171,66 +5296,69 @@ async function checkAndStartTask() {
         return;
     }
 
-    // 搜索页面的处理逻辑
-    // 检查是否有当天的启动参数标记
+     搜索页面的处理逻辑
+     检查是否有当天的启动参数标记
     const hasStartParam = urlParams.has(startParam);
 
-    log(`检查并启动任务: ${startParam}`);
+    log(`检查并启动任务 ${startParam}`);
 
     if (hasStartParam) {
-        // 开关开启时，先执行 dashboard 每日活动区域任务点击（在 earn 跳转前），再执行 earn 页面日常任务点击
+         开关开启时，先执行 dashboard 每日活动区域任务点击（在 earn 跳转前），再执行 earn 页面日常任务点击
         if (CONFIG.autoClickTasks) {
             await checkAndExecuteTasksOnPage('dashboard');
             await checkAndExecuteTasksOnPage('earn');
         }
 
-        // APP 端签到在搜索开始前执行；资讯阅读改为每次搜索执行前随机穿插上报（见 executeSearch）
+         APP 端签到在搜索开始前执行；资讯阅读改为每次搜索执行前随机穿插上报（见 executeSearch）
         await AppTaskRunner.runCheckInFlow();
 
-        // 有启动参数，准备执行搜索任务
+         有启动参数，准备执行搜索任务
         setTimeout(executeSearch, 2000);
         randomScrollAfterPageLoad();
-        log(`启动任务: ${startParam}`);
+        log(`启动任务 ${startParam}`);
     }
 }
 
-// 注册菜单命令
-GM_registerMenuCommand('🚀 开始任务', () => {
+ 注册菜单命令
+GM_registerMenuCommand('🚀 开始任务', () = {
     GM_setValue('searchCount', 0);
-    // 同步计数日期戳，与 getTaskStatus 的跨天归零逻辑保持一致
+     同步计数日期戳，与 getTaskStatus 的跨天归零逻辑保持一致
     GM_setValue('searchCountDate', utils.getTodayStr());
-    // 重置当前暂停间隔值以开始新的搜索周期
+     新任务固定本轮随机目标，页面跳转期间不会重新抽取。
+    getSearchTarget(true);
+    GM_deleteValue('activeSearchGroup');
+     重置当前暂停间隔值以开始新的搜索周期
     GM_setValue('currentPauseInterval', utils.getRandomPauseInterval());
-    // 清除热词缓存，确保开始新任务时获取新的热词
-    GM_deleteValue('cache_search_words');
-    // 清除当日终止标记，新任务重新计数
+     清除热词缓存，确保开始新任务时获取新的热词
+    GM_deleteValue(`cache_search_words_${getExecutionRegion().country.toLowerCase()}_v2`);
+     清除当日终止标记，新任务重新计数
     GM_deleteValue('searchTerminatedDate');
-    // 重置日常任务完成标记（当日已完成则跳过，每日仅执行一次）
+     重置日常任务完成标记（当日已完成则跳过，每日仅执行一次）
     if (!isTaskFlowCompletedToday('earn')) {
         GM_setValue('earnTasksCompleted', false);
     }
-    // 重置 dashboard 每日活动任务完成标记（当日已完成则跳过）
+     重置 dashboard 每日活动任务完成标记（当日已完成则跳过）
     if (!isTaskFlowCompletedToday('dashboard')) {
         GM_setValue('dashboardTasksCompleted', false);
     }
-    // 重置当日放弃跳转标记与超时计数：手动重新开始任务时恢复页面跳转尝试
-    ['earn', 'dashboard'].forEach(flowName => {
+     重置当日放弃跳转标记与超时计数：手动重新开始任务时恢复页面跳转尝试
+    ['earn', 'dashboard'].forEach(flowName = {
         GM_deleteValue(TASK_FLOW_CONFIG[flowName].skipDateKey);
         GM_deleteValue(TASK_FLOW_CONFIG[flowName].skipReasonKey);
         GM_setValue(TASK_FLOW_CONFIG[flowName].injectedKey, false);
         resetTaskFlowIncompleteStreak(flowName);
     });
-    // 获取当天的启动参数
+     获取当天的启动参数
     const startParam = utils.getRandomStartParam();
-    window.location.href = utils.getBingOrigin() + '/?' + startParam + '=1';
+    window.location.href = utils.getBingOrigin() + '' + startParam + '=1';
 });
 
-GM_registerMenuCommand('⏹️ 终止任务', () => {
+GM_registerMenuCommand('⏹️ 终止任务', () = {
     const taskStatus = getTaskStatus();
     GM_setValue('searchCount', taskStatus.maxCount);
-    // 同时清除当前暂停间隔值
+     同时清除当前暂停间隔值
     GM_setValue('currentPauseInterval', null);
-    // 标记当日手动终止，便于面板区分「已终止」与「已完成」
+     标记当日手动终止，便于面板区分「已终止」与「已完成」
     GM_setValue('searchTerminatedDate', utils.getTodayStr());
     utils.clearAllTimers();
     state.isRunning = false;
@@ -5238,33 +5366,30 @@ GM_registerMenuCommand('⏹️ 终止任务', () => {
     updateStatusPanel();
 });
 
-GM_registerMenuCommand('📊 查看/隐藏面板', () => {
+GM_registerMenuCommand('📊 查看隐藏面板', () = {
     if (!state.statusPanel) {
         createStatusPanel();
     } else {
         const panel = state.statusPanel;
-        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        panel.style.display = panel.style.display === 'none'  'block'  'none';
     }
 });
 
-GM_registerMenuCommand('⚙️ 配置脚本参数', () => {
-    alert('请配置以下参数：\n\n1. searchFormParam: 登录Bing后手动搜索几次，从地址栏获取实际的form参数值\n2. maxSearches: 设置每日最大搜索次数\n3. 其他高级参数可根据需要调整\n\n配置完成后刷新页面开始使用。');
-    window.open('https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/quickstart/', '_blank');
+GM_registerMenuCommand('⚙️ 配置脚本参数', () = {
+    alert('请配置以下参数：nn1. searchFormParam 登录Bing后手动搜索几次，从地址栏获取实际的form参数值n2. maxSearches 设置每日最大搜索次数n3. 其他高级参数可根据需要调整nn配置完成后刷新页面开始使用。');
+    window.open('httpsidbb98.github.iomicrosoft-bing-rewards-daily-task-scriptquickstart', '_blank');
 });
 
-GM_registerMenuCommand('👨‍💻 关于作者', () => {
-    alert('作者：Brian\n版本：' + GM_info.script.version + '\n\n这是一个自动化完成微软必应每日搜索任务的脚本，帮助您轻松积累奖励积分。\n\n如果您觉得这个脚本有用，欢迎给作者点个Star！');
-    window.open('https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/', '_blank');
+GM_registerMenuCommand('👨‍💻 关于作者', () = {
+    alert('作者：Briann版本：' + GM_info.script.version + 'nn这是一个自动化完成微软必应每日搜索任务的脚本，帮助您轻松积累奖励积分。nn如果您觉得这个脚本有用，欢迎给作者点个Star！');
+    window.open('httpsidbb98.github.iomicrosoft-bing-rewards-daily-task-script', '_blank');
 });
 
 if (AppAuth.isAuthLandingPage()) {
-    // 授权落地页：捕获授权码并立即兑换令牌，不执行主任务逻辑
+     授权落地页：捕获授权码并立即兑换令牌，不执行主任务逻辑
     AppAuth.handleAuthLanding();
 } else {
-    // 每周首次提示
-    showWeeklyTip();
-
-    // 启动脚本
+     启动脚本
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', checkAndStartTask);
     } else {
