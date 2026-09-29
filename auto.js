@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.8.31.6
+// @version      26.9.30.2
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*.bing.com/*
@@ -82,7 +82,9 @@ const CONFIG_SCHEMA = {
     appReadEnabled: { key: 'customAppReadEnabled', default: false },
     // APP 端资讯阅读每日上报上限区间（篇）
     appReadDailyLimitMin: { key: 'customAppReadDailyLimitMin', default: 5 },
-    appReadDailyLimitMax: { key: 'customAppReadDailyLimitMax', default: 10 }
+    appReadDailyLimitMax: { key: 'customAppReadDailyLimitMax', default: 10 },
+    // APP 请求使用的设备标识预设
+    appUaPreset: { key: 'customAppUaPreset', default: 'android-16-xiaomi15' }
 };
 
 const CONFIG = {
@@ -97,6 +99,9 @@ const CONFIG = {
 
     // 网络请求超时时间（毫秒）：获取热门搜索词的最大等待时间
     requestTimeout: 20 * 1000,
+
+    // 任务页已注入但未完成时的最大连续等待次数，达到后当天不再重复跳转。
+    taskFlowIncompleteLimit: 3,
 
     // 启动参数标记数组
     startParams: ['bingTask', 'runSearch', 'initiateSearch', 'bingSearchMode', 'autoSearch', 'startTask', 'executeSearch', 'launchSearch', 'beginSearch', 'processSearch', 'bingQuest', 'dailyTask', 'searchFlow', 'rewardsTask', 'bingBrowse', 'autoFlow']
@@ -123,6 +128,8 @@ const state = {
     isRunning: false,
     countdownStartTime: 0,
     countdownDuration: 0,
+    // 面板显示数据集中保存，避免各执行流程直接拼接显示状态。
+    panel: { currentWord: '', pauseTimeLeft: null },
     // 任务点击相关状态（earn 日常任务 / dashboard 每日活动共用流程）
     taskFlows: {
         earn: { clicked: new Set(), retryCount: 0, processing: false },
@@ -160,71 +167,15 @@ function getExecutionRegion() {
     return EXECUTION_REGIONS[region] ? region : 'cn';
 }
 
-// 旧参数迁移逻辑（一次性执行）：将 earnTasks* 和 dashboardTasks* 参数合并为统一的 tasks* 参数
-// 优先级规则：优先使用 earnTasks* 的值（它存在更早，更可能反映用户意图），若未设置则使用 dashboardTasks*，最后使用默认值
-function migrateOldTaskParams() {
-    const params = ['ScrollDelay', 'MaxRetries', 'RetryDelay', 'CloseTabDelay'];
-    let migrated = false;
-
-    params.forEach(param => {
-        const newKey = 'customTasks' + param;
-        const oldEarnKey = 'customEarnTasks' + param;
-        const oldDashboardKey = 'customDashboardTasks' + param;
-
-        if (GM_getValue(newKey, undefined) !== undefined) {
-            return;
-        }
-
-        const earnVal = GM_getValue(oldEarnKey, undefined);
-        const dashboardVal = GM_getValue(oldDashboardKey, undefined);
-
-        if (earnVal !== undefined) {
-            GM_setValue(newKey, earnVal);
-            migrated = true;
-        } else if (dashboardVal !== undefined) {
-            GM_setValue(newKey, dashboardVal);
-            migrated = true;
-        }
-
-        try {
-            GM_deleteValue(oldEarnKey);
-            GM_deleteValue(oldDashboardKey);
-        } catch (e) {
-            console.log(`[Migration] 清理旧参数失败（非致命）: ${e.message}`);
-        }
-    });
-
-    if (migrated) {
-        console.log('[Migration] 已完成任务点击参数迁移');
-    }
-
-    // 旧版「单一阅读上限」兼容为固定区间，保留用户原有行为。
-    const oldReadLimit = GM_getValue('customAppReadDailyLimit', undefined);
-    if (oldReadLimit !== undefined &&
-        GM_getValue('customAppReadDailyLimitMin', undefined) === undefined &&
-        GM_getValue('customAppReadDailyLimitMax', undefined) === undefined) {
-        const limit = Math.max(1, Math.min(30, Number.parseInt(oldReadLimit, 10) || 10));
-        GM_setValue('customAppReadDailyLimitMin', limit);
-        GM_setValue('customAppReadDailyLimitMax', limit);
-        console.log('[Migration] 已将旧版 APP 阅读上限迁移为固定区间');
-    }
-}
-migrateOldTaskParams();
-
 // ==================== APP 端任务模块（每日签到 + 资讯阅读） ====================
 
 // APP 端协议常量（Rewards Platform 移动端接口契约）
 const REWARDS_APP_SPEC = {
     endpoints: {
         activityReport: 'https://prod.rewardsplatform.microsoft.com/dapi/me/activities',
-        accountProfile: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
+        accountProfile: 'https://prod.rewardsplatform.microsoft.com/dapi/me',
         tokenIssue: 'https://login.live.com/oauth20_token.srf',
         authorizePage: 'https://login.live.com/oauth20_authorize.srf?client_id=0000000040170455&response_type=code&scope=service::prod.rewardsplatform.microsoft.com::MBI_SSL&redirect_uri=https://login.live.com/oauth20_desktop.srf'
-    },
-    client: {
-        appId: 'SAAndroid/32.6.2110003560',
-        channel: 'SAAndroid',
-        userAgent: 'Mozilla/5.0 (Linux; Android 16; Xiaomi 15 Pro Build/BP1A.250605.012; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/32.6.2110003560'
     },
     // 活动上报类型码：103=每日签到，101=资讯阅读
     activities: {
@@ -240,11 +191,47 @@ const REWARDS_APP_SPEC = {
     requestTimeout: 15 * 1000
 };
 
+const APP_CLIENT_PRESETS = [
+    {
+        id: 'android-16-xiaomi15', label: 'Android 16 · Xiaomi 15 Pro', channel: 'SAAndroid', version: '32.6.2110003560',
+        userAgent: 'Mozilla/5.0 (Linux; Android 16; Xiaomi 15 Pro Build/BP1A.250605.012; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/32.6.2110003560'
+    },
+    {
+        id: 'android-15-pixel9', label: 'Android 15 · Pixel 9 Pro', channel: 'SAAndroid', version: '32.6.2110003560',
+        userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro Build/AP4A.250105.002; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/32.6.2110003560'
+    },
+    {
+        id: 'android-14-galaxy-s24', label: 'Android 14 · Galaxy S24', channel: 'SAAndroid', version: '32.6.2110003560',
+        userAgent: 'Mozilla/5.0 (Linux; Android 14; SM-S9210 Build/UP1A.231005.007; ) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/144.0.7559.132 Mobile Safari/537.36 BingSapphire/32.6.2110003560'
+    },
+    {
+        id: 'ios-18-iphone16', label: 'iOS 18 · iPhone 16 Pro', channel: 'SAIOS', version: '32.6.2110003560',
+        userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1 BingSapphire/32.6.2110003560'
+    }
+];
+const APP_CLIENT_DEFAULT_PRESET = APP_CLIENT_PRESETS[0].id;
+
+// APP 客户端信息集中读取；非法配置自动回退默认预设。
+function getAppClient() {
+    const preset = APP_CLIENT_PRESETS.find(item => item.id === CONFIG.appUaPreset) || APP_CLIENT_PRESETS[0];
+    return {
+        presetId: preset.id,
+        label: preset.label,
+        channel: preset.channel,
+        appId: `${preset.channel}/${preset.version}`,
+        userAgent: preset.userAgent
+    };
+}
+
+function getAccountProfileUrl() {
+    return `${REWARDS_APP_SPEC.endpoints.accountProfile}?channel=${getAppClient().channel}&options=613`;
+}
+
 /**
  * APP 端网络请求封装（GM_xmlhttpRequest 的 Promise 形态）
  * 非 2xx 响应抛出携带状态码的错误，供上层识别 401 等场景
  */
-function appHttpRequest(options) {
+function request(options) {
     return new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
             method: options.method || 'GET',
@@ -328,7 +315,7 @@ const AppAuth = {
         }
 
         try {
-            const res = await appHttpRequest({
+            const res = await request({
                 url: `${REWARDS_APP_SPEC.endpoints.tokenIssue}?${params.toString()}`
             });
             const data = utils.safeJsonParse(res, null);
@@ -463,10 +450,11 @@ const AppApi = {
 
     // 组装移动端公共请求头
     buildHeaders(extra) {
+        const client = getAppClient();
         return Object.assign({
             'content-type': 'application/json; charset=UTF-8',
-            'user-agent': REWARDS_APP_SPEC.client.userAgent,
-            'x-rewards-appid': REWARDS_APP_SPEC.client.appId,
+            'user-agent': client.userAgent,
+            'x-rewards-appid': client.appId,
             'x-rewards-ismobile': 'true',
             'x-rewards-country': this.getRegion(),
             'x-rewards-language': this.getLanguage()
@@ -517,7 +505,7 @@ const AppApi = {
     async reportCheckIn() {
         const region = this.getRegion();
         try {
-            const res = await AppAuth.withAuth(token => appHttpRequest({
+            const res = await AppAuth.withAuth(token => request({
                 method: 'POST',
                 url: REWARDS_APP_SPEC.endpoints.activityReport,
                 headers: this.buildHeaders({
@@ -530,7 +518,7 @@ const AppApi = {
                     id: this.generateActivityId(),
                     type: REWARDS_APP_SPEC.activities.checkIn,
                     country: region,
-                    channel: REWARDS_APP_SPEC.client.channel
+                    channel: getAppClient().channel
                 })
             }));
             if (res === null) return null;
@@ -554,7 +542,7 @@ const AppApi = {
     async reportArticleRead() {
         const region = this.getRegion();
         try {
-            const res = await AppAuth.withAuth(token => appHttpRequest({
+            const res = await AppAuth.withAuth(token => request({
                 method: 'POST',
                 url: REWARDS_APP_SPEC.endpoints.activityReport,
                 headers: this.buildHeaders({ authorization: `Bearer ${token}` }),
@@ -563,7 +551,7 @@ const AppApi = {
                     id: this.generateActivityId(),
                     type: REWARDS_APP_SPEC.activities.readArticle,
                     country: region,
-                    channel: REWARDS_APP_SPEC.client.channel,
+                    channel: getAppClient().channel,
                     attributes: { offerid: REWARDS_APP_SPEC.offers.readArticle }
                 })
             }));
@@ -583,8 +571,8 @@ const AppApi = {
     // 查询阅读进度（当前/上限）
     async queryReadProgress() {
         try {
-            const res = await AppAuth.withAuth(token => appHttpRequest({
-                url: REWARDS_APP_SPEC.endpoints.accountProfile,
+            const res = await AppAuth.withAuth(token => request({
+                url: getAccountProfileUrl(),
                 headers: this.buildHeaders({ authorization: `Bearer ${token}` })
             }));
             if (res === null) return null;
@@ -2343,6 +2331,17 @@ function showSettingsDialog(theme) {
                                 </div>
                             </label>
                         </div>
+                        <div class="form-card" style="margin-bottom:16px;padding:20px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="APP设备标识 UA 用户代理 机型 安卓 iOS">
+                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
+                                <span style="font-size:16px;">📲</span>
+                                APP 设备预设
+                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="切换 APP 任务的设备标识；保存并刷新后生效">❓</span>
+                            </label>
+                            <select id="app-ua-preset-select" class="form-input" style="width:100%;box-sizing:border-box;padding:0 16px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;height:48px;font-weight:600;">
+                                ${APP_CLIENT_PRESETS.map(preset => `<option value="${preset.id}" ${saved.appUaPreset === preset.id ? 'selected' : ''}>${utils.escapeHtml(preset.label)}</option>`).join('')}
+                            </select>
+                            <div id="app-ua-preset-meta" style="margin-top:10px;font-size:11px;color:${theme['--panel-text-muted']};line-height:1.6;"></div>
+                        </div>
                         <div class="form-card" style="margin-bottom:16px;padding:20px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="阅读上限 每日阅读 APP阅读上限 随机区间">
                             <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
                                 <span style="font-size:16px;">📚</span>
@@ -2930,8 +2929,18 @@ function showSettingsDialog(theme) {
     const appReadCheckbox = document.getElementById('app-read-checkbox');
     const appReadLimitMinInput = document.getElementById('app-read-limit-min-input');
     const appReadLimitMaxInput = document.getElementById('app-read-limit-max-input');
+    const appUaPresetSelect = document.getElementById('app-ua-preset-select');
+    const appUaPresetMeta = document.getElementById('app-ua-preset-meta');
     const appAuthStartBtn = document.getElementById('app-auth-start-btn');
     const appAuthStatusEl = document.getElementById('app-auth-status');
+
+    const renderAppUaPreset = () => {
+        const preset = APP_CLIENT_PRESETS.find(item => item.id === appUaPresetSelect.value) || APP_CLIENT_PRESETS[0];
+        appUaPresetMeta.textContent = `${preset.channel}/${preset.version} · ${preset.userAgent}`;
+        appUaPresetMeta.title = preset.userAgent;
+    };
+    appUaPresetSelect.addEventListener('change', renderAppUaPreset);
+    renderAppUaPreset();
 
     // APP 端授权按钮：打开授权页，落地后由脚本自动捕获授权码并兑换令牌
     if (appAuthStartBtn) {
@@ -3511,6 +3520,8 @@ function showSettingsDialog(theme) {
         appReadCheckbox.checked = false;
         appReadLimitMinInput.value = 5;
         appReadLimitMaxInput.value = 10;
+        appUaPresetSelect.value = APP_CLIENT_DEFAULT_PRESET;
+        renderAppUaPreset();
 
         // 触发checkbox样式更新
         randomAddCheckbox.dispatchEvent(new Event('change'));
@@ -3558,6 +3569,7 @@ function showSettingsDialog(theme) {
         const appReadEnabled = appReadCheckbox.checked;
         const appReadDailyLimitMin = parseInt(appReadLimitMinInput.value);
         const appReadDailyLimitMax = parseInt(appReadLimitMaxInput.value);
+        const appUaPreset = appUaPresetSelect.value;
 
         // 验证
         if (!searchFormParam) {
@@ -3612,6 +3624,10 @@ function showSettingsDialog(theme) {
             showSettingsMessage('每日阅读上限区间应为 1-30 篇，且最小值不能大于最大值。', 'error');
             return;
         }
+        if (!APP_CLIENT_PRESETS.some(preset => preset.id === appUaPreset)) {
+            showSettingsMessage('请选择有效的 APP 设备预设。', 'error');
+            return;
+        }
 
         showSettingsConfirmation(
             '确认保存配置',
@@ -3645,6 +3661,7 @@ function showSettingsDialog(theme) {
         CONFIG.appReadEnabled = appReadEnabled;
         CONFIG.appReadDailyLimitMin = appReadDailyLimitMin;
         CONFIG.appReadDailyLimitMax = appReadDailyLimitMax;
+        CONFIG.appUaPreset = appUaPreset;
         // 配置变更后，下次 APP 阅读重新选择当日随机上限。
         GM_setValue('appReadLimitDate', 0);
 
@@ -3671,7 +3688,8 @@ function showSettingsDialog(theme) {
             appTasks: {
                 checkInEnabled: appCheckInEnabled,
                 readEnabled: appReadEnabled,
-                readDailyLimitRange: `${appReadDailyLimitMin}-${appReadDailyLimitMax}`
+                readDailyLimitRange: `${appReadDailyLimitMin}-${appReadDailyLimitMax}`,
+                devicePreset: appUaPreset
             }
         });
 
@@ -3802,14 +3820,53 @@ async function refreshAppTaskPanelData() {
 /**
  * 更新状态面板
  */
+function buildPanelNotice(icon, text, variant = 'info') {
+    const colors = variant === 'success'
+        ? ['var(--panel-success-bg,#f0f9f0)', 'var(--panel-success-text,#107c10)']
+        : variant === 'warning'
+            ? ['var(--panel-warning-bg,#fff8e6)', 'var(--panel-warning-text,#8a6900)']
+            : ['var(--panel-info-bg,#f0f7ff)', 'var(--panel-info-text,#005a9e)'];
+    return `<div style="padding:12px;background:${colors[0]};border-radius:8px;border-left:3px solid ${colors[1]};display:flex;align-items:center;gap:8px;"><span style="font-size:18px;">${icon}</span><span style="color:${colors[1]};font-size:12px;font-weight:500;">${utils.escapeHtml(text)}</span></div>`;
+}
+
+function resetPanelStatus() {
+    state.panel.currentWord = '';
+    state.panel.pauseTimeLeft = null;
+    state.countdownStartTime = 0;
+    state.countdownDuration = 0;
+}
+
+function isTaskTerminatedToday() {
+    return GM_getValue('searchTerminatedDate', '') === utils.getTodayStr();
+}
+
+function derivePanelStatus(taskStatus) {
+    const remainingTime = utils.getAccurateRemainingTime();
+    const terminated = taskStatus.isCompleted && isTaskTerminatedToday();
+    return {
+        currentWord: state.panel.currentWord,
+        pauseTimeLeft: state.panel.pauseTimeLeft,
+        remainingTime,
+        terminated,
+        completed: taskStatus.isCompleted && !terminated,
+        running: state.isRunning && !taskStatus.isCompleted
+    };
+}
+
 function updateStatusPanel(data = {}) {
     if (!state.statusPanel) return;
+
+    if (Object.prototype.hasOwnProperty.call(data, 'currentWord')) state.panel.currentWord = data.currentWord || '';
+    if (Object.prototype.hasOwnProperty.call(data, 'pauseTimeLeft')) {
+        state.panel.pauseTimeLeft = Number(data.pauseTimeLeft) > 0 ? data.pauseTimeLeft : null;
+    }
 
     const taskStatus = getTaskStatus();
     const content = document.getElementById('panel-content');
     const pageStatus = document.getElementById('page-status');
     const countdownElement = document.getElementById('panel-countdown');
-    const { currentWord = '', pauseTimeLeft = null } = data;
+    const panelStatus = derivePanelStatus(taskStatus);
+    const { currentWord, pauseTimeLeft, remainingTime } = panelStatus;
 
     // 更新页面状态指示器
     const taskRunningStatus = document.getElementById('task-running-status');
@@ -3834,16 +3891,15 @@ function updateStatusPanel(data = {}) {
     const progress = taskStatus.overallProgress;
 
     // 计算剩余时间（使用精确计时）
-    const remainingTime = utils.getAccurateRemainingTime();
-
     // 更新收缩状态的倒计时显示
     if (countdownElement) {
         if (state.isPanelCollapsed) {
             // 面板收缩时显示倒计时
             if (taskStatus.isCompleted) {
-                // 任务已完成
-                countdownElement.textContent = '✅ 已完成';
-                countdownElement.style.color = 'var(--panel-success-text,#107c10)';
+                countdownElement.textContent = panelStatus.terminated ? '⏹️ 已终止' : '✅ 已完成';
+                countdownElement.style.color = panelStatus.terminated
+                    ? 'var(--panel-warning-text,#8a6900)'
+                    : 'var(--panel-success-text,#107c10)';
             } else if (pauseTimeLeft !== null && pauseTimeLeft > 0) {
                 // 暂停中 - 显示暂停倒计时
                 const minutes = Math.floor(pauseTimeLeft / 60);
@@ -3899,12 +3955,8 @@ function updateStatusPanel(data = {}) {
                 </div>
             ` : ''}
 
-            ${taskStatus.isCompleted ? `
-                <div style="padding:12px;background:var(--panel-success-bg,#f0f9f0);border-radius:8px;border-left:3px solid var(--panel-success-text,#107c10);display:flex;align-items:center;gap:8px;">
-                    <span style="font-size:18px;">✅</span>
-                    <span style="color:var(--panel-success-text,#107c10);font-size:12px;font-weight:500;">今日任务已完成</span>
-                </div>
-            ` : ''}
+            ${panelStatus.completed ? buildPanelNotice('✅', '今日任务已完成', 'success') : ''}
+            ${panelStatus.terminated ? buildPanelNotice('⏹️', '今日任务已终止，可从菜单重新开始', 'warning') : ''}
 
             ${pauseTimeLeft !== null ? `
                 <div style="padding:12px;background:var(--panel-warning-bg,#fff8e6);border-radius:8px;border-left:3px solid var(--panel-warning-border,#ffb900);display:flex;align-items:center;gap:8px;">
@@ -4434,6 +4486,7 @@ async function executeSearch() {
         if ((CONFIG.appCheckInEnabled || CONFIG.appReadEnabled) && !AppTaskRunner.isAllDone()) {
             await AppTaskRunner.runAll();
         }
+        resetPanelStatus();
         updateStatusPanel();
         GM_notification({ text: "Bing Rewards 任务已完成", title: "任务完成", timeout: 3000 });
         state.isRunning = false;
@@ -4850,6 +4903,12 @@ const TASK_FLOW_CONFIG = {
         pageUrl: 'https://rewards.bing.com/earn',
         completedKey: 'earnTasksCompleted',
         lastDateKey: 'lastEarnTasksDate',
+        injectedKey: 'earnTasksInjected',
+        injectedDateKey: 'lastEarnTasksInjectedDate',
+        incompleteKey: 'earnTasksIncompleteStreak',
+        incompleteDateKey: 'lastEarnTasksIncompleteDate',
+        skipDateKey: 'earnTasksSkipDate',
+        skipReasonKey: 'earnTasksSkipReason',
         label: '日常任务',
         notificationTitle: 'Bing Rewards 日常任务'
     },
@@ -4858,6 +4917,12 @@ const TASK_FLOW_CONFIG = {
         pageUrl: 'https://rewards.bing.com/dashboard',
         completedKey: 'dashboardTasksCompleted',
         lastDateKey: 'lastDashboardTasksDate',
+        injectedKey: 'dashboardTasksInjected',
+        injectedDateKey: 'lastDashboardTasksInjectedDate',
+        incompleteKey: 'dashboardTasksIncompleteStreak',
+        incompleteDateKey: 'lastDashboardTasksIncompleteDate',
+        skipDateKey: 'dashboardTasksSkipDate',
+        skipReasonKey: 'dashboardTasksSkipReason',
         label: ' dashboard 每日活动任务',
         notificationTitle: 'Bing Rewards 每日活动'
     }
@@ -4898,6 +4963,7 @@ function markTaskFlowCompleted(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     GM_setValue(conf.completedKey, true);
     GM_setValue(conf.lastDateKey, utils.getTodayStr());
+    resetTaskFlowIncompleteStreak(flowName);
 }
 
 /**
@@ -4907,6 +4973,50 @@ function isTaskFlowCompletedToday(flowName) {
     const conf = TASK_FLOW_CONFIG[flowName];
     return GM_getValue(conf.lastDateKey, '') === utils.getTodayStr() &&
            GM_getValue(conf.completedKey, false);
+}
+
+function markTaskFlowInjected(flowName) {
+    const conf = TASK_FLOW_CONFIG[flowName];
+    GM_setValue(conf.injectedKey, true);
+    GM_setValue(conf.injectedDateKey, utils.getTodayStr());
+}
+
+function isTaskFlowInjectedToday(flowName) {
+    const conf = TASK_FLOW_CONFIG[flowName];
+    return GM_getValue(conf.injectedDateKey, '') === utils.getTodayStr() && GM_getValue(conf.injectedKey, false);
+}
+
+function getTaskFlowIncompleteStreak(flowName) {
+    const conf = TASK_FLOW_CONFIG[flowName];
+    return GM_getValue(conf.incompleteDateKey, '') === utils.getTodayStr() ? GM_getValue(conf.incompleteKey, 0) : 0;
+}
+
+function increaseTaskFlowIncompleteStreak(flowName) {
+    const conf = TASK_FLOW_CONFIG[flowName];
+    const streak = getTaskFlowIncompleteStreak(flowName) + 1;
+    GM_setValue(conf.incompleteKey, streak);
+    GM_setValue(conf.incompleteDateKey, utils.getTodayStr());
+    return streak;
+}
+
+function resetTaskFlowIncompleteStreak(flowName) {
+    const conf = TASK_FLOW_CONFIG[flowName];
+    GM_setValue(conf.incompleteKey, 0);
+    GM_setValue(conf.incompleteDateKey, utils.getTodayStr());
+}
+
+function markTaskFlowSkippedToday(flowName, reason) {
+    const conf = TASK_FLOW_CONFIG[flowName];
+    GM_setValue(conf.skipDateKey, utils.getTodayStr());
+    GM_setValue(conf.skipReasonKey, reason);
+}
+
+function isTaskFlowSkippedToday(flowName) {
+    return GM_getValue(TASK_FLOW_CONFIG[flowName].skipDateKey, '') === utils.getTodayStr();
+}
+
+function getTaskFlowSkipReason(flowName) {
+    return GM_getValue(TASK_FLOW_CONFIG[flowName].skipReasonKey, 'not-injected');
 }
 
 /**
@@ -4920,8 +5030,13 @@ async function checkAndExecuteTasksOnPage(flowName) {
         console.log(`今日${conf.label}点击已完成，跳过`);
         return true;
     }
+    if (isTaskFlowSkippedToday(flowName)) {
+        console.log(`${conf.label}当日已跳过（${getTaskFlowSkipReason(flowName)}），不再重复打开任务页`);
+        return true;
+    }
 
     console.log(`准备执行${conf.label}点击...`);
+    GM_setValue(conf.injectedKey, false);
 
     return new Promise((resolve) => {
         let settled = false;
@@ -4956,8 +5071,17 @@ async function checkAndExecuteTasksOnPage(flowName) {
                     console.log('关闭标签页失败:', e);
                 }
             }
-            console.log(`${conf.label}点击超时，未标记为完成`);
-            finish(false);
+            if (isTaskFlowInjectedToday(flowName)) {
+                const streak = increaseTaskFlowIncompleteStreak(flowName);
+                if (streak >= CONFIG.taskFlowIncompleteLimit) {
+                    markTaskFlowSkippedToday(flowName, 'incomplete');
+                    console.log(`${conf.label}连续 ${streak} 次超时未完成，当天不再跳转`);
+                }
+            } else {
+                markTaskFlowSkippedToday(flowName, 'not-injected');
+                console.log(`${conf.label}页面未注入脚本，当天不再跳转`);
+            }
+            finish(true);
         }, 30000);
     });
 }
@@ -5010,9 +5134,66 @@ function scrollToDailyTasks() {
 }
 
 /**
- * 查找未完成的有积分任务卡片
+ * 判断任务文本中的 X/Y 进度是否未完成；排除日期等连续数字格式。
+ */
+function isIncompleteProgress(text) {
+    const matcher = /(\d{1,3})\s*\/\s*(\d{1,4})/g;
+    let match;
+    while ((match = matcher.exec(text)) !== null) {
+        const before = text.charAt(match.index - 1);
+        const after = text.charAt(match.index + match[0].length);
+        if (/[\d/]/.test(before) || /[\d/]/.test(after)) continue;
+        if (match[1] !== match[2]) return true;
+    }
+    return false;
+}
+
+/**
+ * 统一收集 earn 与 dashboard 的未完成任务；页面结构差异由 options 提供。
+ */
+function collectIncompleteTasks(container, options) {
+    const { selector, logPrefix, missingResult = [], skipLocked = false, progressAware = false, skipHref } = options;
+    if (!container) {
+        console.log(`${logPrefix} 未找到任务区域`);
+        return missingResult;
+    }
+
+    const tasks = [];
+    const seen = new Set();
+    const completedPattern = /已完成|complete|completed|✓|✔|done|finished/i;
+    const lockedPattern = /已锁定|locked/i;
+    container.querySelectorAll(selector).forEach(element => {
+        const href = element.getAttribute('href') || '';
+        const identity = href || element.id || element;
+        if (seen.has(identity) || (skipHref && skipHref(href))) return;
+        seen.add(identity);
+        const text = element.textContent || element.innerText || '';
+        const ariaLabel = element.getAttribute('aria-label') || '';
+        if (text.trim().length < 2 || completedPattern.test(text) || completedPattern.test(ariaLabel) ||
+            element.querySelector('[class*="complete"], [class*="Complete"], [class*="done"], [class*="Done"]')) return;
+        if (skipLocked && (lockedPattern.test(text) || lockedPattern.test(ariaLabel) ||
+            element.querySelector('[class*="lock"]') || element.getAttribute('aria-disabled') === 'true')) return;
+        const pointsMatch = text.match(/\+(\d+)/) || element.outerHTML.match(/\+(\d+)/);
+        const points = pointsMatch ? Number.parseInt(pointsMatch[1], 10) : 0;
+        const incomplete = progressAware && isIncompleteProgress(text);
+        if (points <= 0 && !incomplete && !(progressAware && href.includes('task'))) return;
+        tasks.push({ element, href, points, taskId: href || element.id || String(tasks.length), text: text.substring(0, 100) });
+    });
+    console.log(`${logPrefix} 共找到 ${tasks.length} 个未完成任务`);
+    return tasks;
+}
+
+/**
+ * 兼容旧调用：实际采集由 collectIncompleteTasks 统一完成。
  */
 function findIncompleteTaskCards() {
+    return collectIncompleteTasks(findMoreActivitiesSection(), {
+        selector: 'a[href][target="_blank"]',
+        logPrefix: '[EarnTasks]'
+    });
+}
+
+function findIncompleteTaskCardsLegacy() {
     console.log('[EarnTasks] 正在查找未完成的任务卡片...');
 
     const moreActivitiesSection = findMoreActivitiesSection();
@@ -5361,10 +5542,20 @@ function scrollToDashboardDailySet(dailySetSection) {
 }
 
 /**
- * 查找 #dailyset 区域内未完成的任务卡片
- * 复用 earn 页面任务识别逻辑，针对 dashboard 的 DOM 结构与状态文案进行调整
+ * dashboard 任务也通过统一采集器处理。
  */
 function findIncompleteDashboardTasks(dailySetSection) {
+    return collectIncompleteTasks(dailySetSection, {
+        selector: 'a[href], [role="button"], .card, [class*="card"]',
+        logPrefix: '[DashboardTasks]',
+        missingResult: null,
+        skipLocked: true,
+        progressAware: true,
+        skipHref: href => href === '/earn' || href.startsWith('#')
+    });
+}
+
+function findIncompleteDashboardTasksLegacy(dailySetSection) {
     console.log('[DashboardTasks] 正在查找未完成的任务卡片...');
 
     if (!dailySetSection) {
@@ -5482,7 +5673,9 @@ async function checkAndStartTask() {
 
     // 如果是 rewards.bing.com/earn 页面，执行日常任务点击（开关关闭时不执行）
     if (isRewardsPage('/earn')) {
-        if (CONFIG.autoClickTasks && urlParams.has(startParam)) {
+        const hasTaskParam = urlParams.has(startParam);
+        if (hasTaskParam) markTaskFlowInjected('earn');
+        if (CONFIG.autoClickTasks && hasTaskParam) {
             console.log('[EarnTasks] 检测到自动处理标记，开始执行日常任务点击');
             await new Promise(resolve => setTimeout(resolve, 50));
             await processTasks('earn', findAndPrepareEarnTasks);
@@ -5492,7 +5685,9 @@ async function checkAndStartTask() {
 
     // 如果是 rewards.bing.com/dashboard 页面，执行每日活动区域任务点击（开关关闭时不执行）
     if (isRewardsPage('/dashboard')) {
-        if (CONFIG.autoClickTasks && urlParams.has(startParam)) {
+        const hasTaskParam = urlParams.has(startParam);
+        if (hasTaskParam) markTaskFlowInjected('dashboard');
+        if (CONFIG.autoClickTasks && hasTaskParam) {
             console.log('[DashboardTasks] 检测到自动处理标记，开始执行每日活动区域任务点击');
             await new Promise(resolve => setTimeout(resolve, 50));
             await processTasks('dashboard', findAndPrepareDashboardTasks);
@@ -5528,6 +5723,8 @@ async function checkAndStartTask() {
 // 注册菜单命令
 GM_registerMenuCommand('🚀 开始任务', () => {
     GM_setValue('searchCount', 0);
+    GM_deleteValue('searchTerminatedDate');
+    resetPanelStatus();
     getSearchTarget(true);
     // 重置当前暂停间隔值以开始新的搜索周期
     const initialPauseInterval = utils.getRandomPauseInterval();
@@ -5545,6 +5742,13 @@ GM_registerMenuCommand('🚀 开始任务', () => {
     if (!isTaskFlowCompletedToday('dashboard')) {
         GM_setValue('dashboardTasksCompleted', false);
     }
+    ['earn', 'dashboard'].forEach(flowName => {
+        const conf = TASK_FLOW_CONFIG[flowName];
+        GM_deleteValue(conf.skipDateKey);
+        GM_deleteValue(conf.skipReasonKey);
+        GM_setValue(conf.injectedKey, false);
+        resetTaskFlowIncompleteStreak(flowName);
+    });
     // 获取当天的启动参数
     const startParam = utils.getRandomStartParam();
     const region = getExecutionRegion();
@@ -5556,13 +5760,13 @@ GM_registerMenuCommand('⏹️ 终止任务', () => {
     const taskStatus = getTaskStatus();
     const counterKey = 'searchCount';
     GM_setValue(counterKey, taskStatus.maxCount);
+    GM_setValue('searchTerminatedDate', utils.getTodayStr());
     // 同时清除当前暂停间隔值
     GM_setValue('currentPauseInterval', null);
     GM_setValue('nextPauseAt', 0);
     utils.clearAllTimers();
     state.isRunning = false;
-    state.countdownStartTime = 0;
-    state.countdownDuration = 0;
+    resetPanelStatus();
     updateStatusPanel();
 });
 
