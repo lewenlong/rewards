@@ -660,6 +660,29 @@ const AppTaskRunner = {
         return limit;
     },
 
+    // 面板显示使用当天随机目标与成功上报数，不使用服务端阅读任务的固定总数。
+    getReadDailyProgress() {
+        const today = this.getTodayNum();
+        const target = Number.parseInt(GM_getValue('appReadDailyTarget', 0), 10);
+        const hasTarget = GM_getValue('appReadLimitDate', 0) === today && target > 0;
+        const reported = this.getReadReportedToday();
+        return {
+            target: hasTarget ? target : 0,
+            reported: hasTarget ? Math.min(reported, target) : 0,
+            completed: hasTarget && reported >= target
+        };
+    },
+
+    // 当天随机目标达到即视为 APP 阅读流程完成，不再等待服务端固定总数。
+    completeReadDailyTargetIfReached() {
+        const progress = this.getReadDailyProgress();
+        if (!progress.completed) return false;
+        GM_setValue('appReadDate', this.getTodayNum());
+        state.appTasks.readDone = true;
+        GM_log(`APP阅读已达到当天随机目标（${progress.reported}/${progress.target}篇）`);
+        return true;
+    },
+
     bumpReadReported() {
         if (GM_getValue('appReadReportedDate', 0) !== this.getTodayNum()) {
             GM_setValue('appReadReportedDate', this.getTodayNum());
@@ -788,6 +811,10 @@ const AppTaskRunner = {
 
             const dailyLimit = this.getReadDailyLimit();
             const limitLeft = dailyLimit - this.getReadReportedToday();
+            if (limitLeft <= 0) {
+                this.completeReadDailyTargetIfReached();
+                return;
+            }
             const remaining = state.appTasks.readTotal - state.appTasks.readCurrent;
             const maxBatch = Math.min(remaining, limitLeft);
             if (maxBatch <= 0) return;
@@ -837,8 +864,8 @@ const AppTaskRunner = {
             GM_setValue('appReadDate', today);
             state.appTasks.readDone = true;
             GM_log(`APP阅读任务已完成（已验证 ${progress.current}/${progress.total}）`);
-        } else if (GM_getValue('appReadDate', 0) === today) {
-            // 误标自愈：日期戳已标记完成但真实进度未达标，重置后继续
+        } else if (GM_getValue('appReadDate', 0) === today && !this.getReadDailyProgress().completed) {
+            // 日期戳既非服务端完成、也未达到当天随机目标时才重置。
             GM_log(`APP阅读标记有误（${progress.current}/${progress.total}），重置后继续`);
             GM_setValue('appReadDate', 0);
             state.appTasks.readDone = false;
@@ -868,6 +895,7 @@ const AppTaskRunner = {
             this.bumpReadReported();
             GM_setValue('appReadProgressCache', { date: today, current: state.appTasks.readCurrent, total: state.appTasks.readTotal });
             updateStatusPanel();
+            if (this.completeReadDailyTargetIfReached()) break;
             if (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal) break;
             // 篇间随机间隔，模拟真实阅读行为
             if (i < count - 1) {
@@ -875,7 +903,7 @@ const AppTaskRunner = {
             }
         }
 
-        if (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal) {
+        if (this.getReadDailyProgress().completed || (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal)) {
             GM_setValue('appReadDate', today);
             state.appTasks.readDone = true;
             GM_log('APP阅读任务完成');
@@ -903,6 +931,10 @@ const AppTaskRunner = {
 
         const dailyLimit = this.getReadDailyLimit();
         const limitLeft = dailyLimit - this.getReadReportedToday();
+        if (limitLeft <= 0) {
+            this.completeReadDailyTargetIfReached();
+            return;
+        }
         const remaining = Math.min(progress.total - progress.current, limitLeft);
         if (remaining <= 0) {
             GM_log(`APP阅读已达每日上报上限（${dailyLimit} 篇），今日不再上报`);
@@ -3749,16 +3781,17 @@ function getTaskSummaryPanelHtml() {
     }
 
     if (CONFIG.appReadEnabled) {
+        const readProgress = AppTaskRunner.getReadDailyProgress();
         let value;
         if (authPending) {
             value = pillWarn();
+        } else if (readProgress.target > 0) {
+            const text = `${readProgress.reported}/${readProgress.target}篇`;
+            value = readProgress.completed
+                ? pillSuccess(`✓ ${text}`)
+                : pill(text, 'var(--panel-primary-color,#0067b8)', 'var(--panel-info-bg,#f0f7ff)');
         } else if (state.appTasks.readDone || (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal)) {
-            // 缓存缺失（readTotal=0）时降级为通用文案，避免出现矛盾的"✓ 0/30分"
-            value = state.appTasks.readTotal > 0 && state.appTasks.readCurrent > 0
-                ? pillSuccess(`✓ ${state.appTasks.readCurrent}/${state.appTasks.readTotal}分`)
-                : pillSuccess('✓ 已完成');
-        } else if (state.appTasks.readTotal > 0) {
-            value = pill(`${state.appTasks.readCurrent}/${state.appTasks.readTotal}分`, 'var(--panel-primary-color,#0067b8)', 'var(--panel-info-bg,#f0f7ff)');
+            value = pillSuccess('✓ 已完成');
         } else {
             value = pillMuted();
         }
@@ -3867,6 +3900,7 @@ function updateStatusPanel(data = {}) {
     const countdownElement = document.getElementById('panel-countdown');
     const panelStatus = derivePanelStatus(taskStatus);
     const { currentWord, pauseTimeLeft, remainingTime } = panelStatus;
+    const appReadDailyProgress = AppTaskRunner.getReadDailyProgress();
 
     // 更新页面状态指示器
     const taskRunningStatus = document.getElementById('task-running-status');
@@ -3951,7 +3985,7 @@ function updateStatusPanel(data = {}) {
             ${state.appTasks.readRunning ? `
                 <div style="padding:12px;background:var(--panel-info-bg,#f0f7ff);border-radius:8px;border-left:3px solid var(--panel-primary-color,#0067b8);display:flex;align-items:center;gap:8px;">
                     <span style="font-size:18px;">📖</span>
-                    <span style="color:var(--panel-info-text,#005a9e);font-size:12px;font-weight:500;">APP阅读执行中${state.appTasks.readTotal > 0 ? ` ${state.appTasks.readCurrent}/${state.appTasks.readTotal}分` : ''}，完成后继续搜索</span>
+                    <span style="color:var(--panel-info-text,#005a9e);font-size:12px;font-weight:500;">APP阅读执行中${appReadDailyProgress.target > 0 ? ` ${appReadDailyProgress.reported}/${appReadDailyProgress.target}篇` : ''}，完成后继续搜索</span>
                 </div>
             ` : ''}
 
