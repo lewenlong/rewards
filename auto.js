@@ -29,8 +29,8 @@
 // @grant        GM_saveTab
 // @grant        GM_closeTab
 // @grant        GM_deleteValue
-// @downloadURL  https://github.com/lewenlong/rewards/blob/main/auto.js
-// @updateURL    https://github.com/lewenlong/rewards/blob/main/auto.js
+// @downloadURL  https://raw.githubusercontent.com/lewenlong/rewards/main/auto.js
+// @updateURL    https://raw.githubusercontent.com/lewenlong/rewards/main/auto.js
 // ==/UserScript==
 
 'use strict';
@@ -1215,6 +1215,36 @@ const REGION_FALLBACK_SEARCH_WORDS = {
         '台灣電影', '台灣股市', '台灣高鐵時刻表', '台灣夜市', '台灣活動',
         '台灣棒球', '台灣演唱會', '台灣教育', '台灣醫療', '台灣購物',
         '台灣咖啡', '台灣登山', '台灣國旅', '台灣展覽', '台灣節慶'
+    ],
+    us: [
+        'US weather forecast', 'latest US news', 'US stock market', 'NFL schedule', 'NBA scores',
+        'movie showtimes', 'nearby restaurants', 'national park guide', 'technology news', 'healthy recipes',
+        'flight status', 'weekend events', 'live music near me', 'job search tips', 'home improvement ideas',
+        'best podcasts', 'book recommendations', 'science news', 'online shopping deals', 'sports highlights'
+    ],
+    gb: [
+        'UK weather forecast', 'latest UK news', 'Premier League fixtures', 'London events', 'UK train times',
+        'BBC sport news', 'British recipes', 'UK stock market', 'weekend activities', 'museum exhibitions',
+        'cinema listings', 'holiday destinations', 'technology news', 'football results', 'gardening tips',
+        'book recommendations', 'music festivals', 'national rail updates', 'healthy recipes', 'local restaurants'
+    ],
+    jp: [
+        '今日の天気', '最新ニュース', '東京のイベント', '電車の運行情報', '日本の株価',
+        '映画上映時間', 'おすすめレシピ', '野球速報', '旅行先おすすめ', '新作ゲーム',
+        'アニメニュース', '人気の本', '音楽ランキング', '週末のお出かけ', '健康レシピ',
+        '桜の名所', 'コンビニ新商品', 'テクノロジーニュース', '日本の祝日', 'ラーメン店おすすめ'
+    ],
+    de: [
+        'Wettervorhersage Deutschland', 'aktuelle Nachrichten', 'Bundesliga Ergebnisse', 'Veranstaltungen Berlin', 'Bahn Fahrplan',
+        'Börse Deutschland', 'Kinoprogramm', 'einfache Rezepte', 'Reiseziele Deutschland', 'Technologie Nachrichten',
+        'Wochenendtipps', 'Buch Empfehlungen', 'Musik Neuerscheinungen', 'Gesunde Ernährung', 'Restaurant Empfehlungen',
+        'Fußball Nachrichten', 'Museum Ausstellungen', 'Garten Tipps', 'Urlaubsangebote', 'Wissenschaft Nachrichten'
+    ],
+    fr: [
+        'météo France', 'actualités France', 'résultats Ligue 1', 'événements Paris', 'horaires des trains',
+        'bourse française', 'séances de cinéma', 'recettes faciles', 'voyages en France', 'actualités technologie',
+        'idées pour le week-end', 'recommandations de livres', 'nouveautés musique', 'alimentation saine', 'restaurants près de moi',
+        'actualité football', 'expositions musée', 'conseils jardinage', 'offres vacances', 'actualités science'
     ]
 };
 
@@ -2516,6 +2546,9 @@ function showSettingsDialog(theme) {
 
                 </div>
 
+                <!-- 设置操作的页内确认与状态提示区 -->
+                <div id="settings-action-panel" aria-live="polite" style="display:none;margin:0 32px 16px;"></div>
+
                 <!-- 固定底部按钮区 -->
                 <div class="dialog-footer" style="display:flex;gap:12px;justify-content:space-between;padding:20px 32px;border-top:1px solid ${theme['--panel-border']};background:linear-gradient(135deg,${theme['--panel-hover-bg']} 0%,${theme['--panel-bg']} 100%);">
                     <button id="settings-reset-btn" style="padding:14px 24px;border:2px solid ${theme['--panel-border']};border-radius:12px;background:transparent;color:${theme['--panel-text-secondary']};font-size:14px;cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);font-weight:600;display:flex;align-items:center;gap:8px;user-select:none;position:relative;overflow:hidden;" title="恢复所有设置为默认值">
@@ -2958,6 +2991,52 @@ function showSettingsDialog(theme) {
     const exportConfigBtn = document.getElementById('export-config-btn');
     const importConfigBtn = document.getElementById('import-config-btn');
     const configFileInput = document.getElementById('config-file-input');
+    const settingsActionPanel = document.getElementById('settings-action-panel');
+
+    const showSettingsMessage = (message, type = 'info') => {
+        const colors = type === 'success'
+            ? { background: theme['--panel-success-bg'], border: theme['--panel-success-text'], text: theme['--panel-success-text'] }
+            : type === 'error'
+                ? { background: theme['--panel-warning-bg'], border: theme['--panel-warning-text'], text: theme['--panel-warning-text'] }
+                : { background: theme['--panel-info-bg'], border: theme['--panel-primary-color'], text: theme['--panel-text-primary'] };
+        settingsActionPanel.style.display = 'block';
+        settingsActionPanel.innerHTML = '';
+        const messageBox = document.createElement('div');
+        messageBox.style.cssText = `padding:14px 16px;border:1px solid ${colors.border};border-radius:10px;background:${colors.background};color:${colors.text};font-size:13px;font-weight:600;line-height:1.5;`;
+        messageBox.textContent = message;
+        settingsActionPanel.appendChild(messageBox);
+    };
+
+    const showSettingsConfirmation = (title, description, confirmText, onConfirm) => {
+        settingsActionPanel.style.display = 'block';
+        settingsActionPanel.innerHTML = '';
+        const confirmBox = document.createElement('div');
+        confirmBox.style.cssText = `padding:16px;border:1px solid ${theme['--panel-primary-color']};border-radius:10px;background:${theme['--panel-info-bg']};`;
+        const heading = document.createElement('div');
+        heading.style.cssText = `margin-bottom:6px;color:${theme['--panel-primary-color']};font-size:14px;font-weight:700;`;
+        heading.textContent = title;
+        const detail = document.createElement('div');
+        detail.style.cssText = `margin-bottom:14px;color:${theme['--panel-text-secondary']};font-size:13px;line-height:1.5;`;
+        detail.textContent = description;
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;';
+        const backButton = document.createElement('button');
+        backButton.type = 'button';
+        backButton.textContent = '返回修改';
+        backButton.style.cssText = `padding:9px 16px;border:1px solid ${theme['--panel-border']};border-radius:8px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};font-size:13px;cursor:pointer;font-weight:600;`;
+        backButton.addEventListener('click', () => {
+            settingsActionPanel.style.display = 'none';
+            settingsActionPanel.innerHTML = '';
+        });
+        const confirmButton = document.createElement('button');
+        confirmButton.type = 'button';
+        confirmButton.textContent = confirmText;
+        confirmButton.style.cssText = `padding:9px 16px;border:0;border-radius:8px;background:${theme['--panel-primary-color']};color:#fff;font-size:13px;cursor:pointer;font-weight:700;`;
+        confirmButton.addEventListener('click', onConfirm);
+        actions.append(backButton, confirmButton);
+        confirmBox.append(heading, detail, actions);
+        settingsActionPanel.appendChild(confirmBox);
+    };
 
     const closeDialog = () => {
         if (appAuthTimer) clearInterval(appAuthTimer);
@@ -3402,13 +3481,7 @@ function showSettingsDialog(theme) {
         });
     });
 
-    // 恢复默认按钮
-    resetBtn.addEventListener('click', () => {
-        // 确认恢复默认设置
-        if (!confirm('⚠️ 确认恢复所有设置为默认值？\n\n此操作将清除您所有的自定义设置，请确保已备份配置。')) {
-            return;
-        }
-
+    const restoreDefaultFormValues = () => {
         searchFormInput.value = 'QBLH';
         executionRegionInput.value = 'cn';
         // 设置面板状态为展开
@@ -3446,6 +3519,17 @@ function showSettingsDialog(theme) {
         autoClickTasksCheckbox.dispatchEvent(new Event('change'));
         appCheckInCheckbox.dispatchEvent(new Event('change'));
         appReadCheckbox.dispatchEvent(new Event('change'));
+        showSettingsMessage('已恢复默认值；请点击“保存配置”以应用。', 'success');
+    };
+
+    // 恢复默认按钮
+    resetBtn.addEventListener('click', () => {
+        showSettingsConfirmation(
+            '确认恢复默认设置',
+            '这会重置当前表单中的所有设置；确认后仍需点击“保存配置”才会写入。',
+            '确认恢复',
+            restoreDefaultFormValues
+        );
     });
 
     saveBtn.addEventListener('click', () => {
@@ -3477,62 +3561,63 @@ function showSettingsDialog(theme) {
 
         // 验证
         if (!searchFormParam) {
-            alert('❌ 请输入有效的搜索表单参数!');
+            showSettingsMessage('请输入有效的搜索表单参数。', 'error');
             return;
         }
         if (!EXECUTION_REGIONS[executionRegion]) {
-            alert('❌ 请选择有效的执行地区!');
+            showSettingsMessage('请选择有效的执行地区。', 'error');
             return;
         }
         if (!Number.isInteger(minSearches) || !Number.isInteger(maxSearches) || minSearches < 1 || maxSearches > 50 || minSearches > maxSearches) {
-            alert('❌ 搜索次数区间应为 1-50，且最小次数不能大于最大次数!');
+            showSettingsMessage('搜索次数区间应为 1-50，且最小次数不能大于最大次数。', 'error');
             return;
         }
         if (randomAddFactor < 0 || randomAddFactor > 1) {
-            alert('❌ 加词因子应在 0-1 之间!');
+            showSettingsMessage('加词因子应在 0-1 之间。', 'error');
             return;
         }
         if (randomCutFactor < 0 || randomCutFactor > 1) {
-            alert('❌ 截词因子应在 0-1 之间!');
+            showSettingsMessage('截词因子应在 0-1 之间。', 'error');
             return;
         }
         if (pauseIntervalMin < 1 || pauseIntervalMax < pauseIntervalMin) {
-            alert('❌ 暂停间隔设置不合理!');
+            showSettingsMessage('暂停间隔设置不合理。', 'error');
             return;
         }
         if (pauseTimeMin < 60000 || pauseTimeMax < pauseTimeMin) {
-            alert('❌ 暂停时间设置不合理!');
+            showSettingsMessage('暂停时间设置不合理。', 'error');
             return;
         }
         if (minDelay < 5000 || maxDelay < minDelay) {
-            alert('❌ 搜索延迟设置不合理!');
+            showSettingsMessage('搜索延迟设置不合理。', 'error');
             return;
         }
         if (tasksScrollDelay < 1000 || tasksScrollDelay > 10000) {
-            alert('❌ 任务滚动等待时间应在 1000-10000 毫秒之间!');
+            showSettingsMessage('任务滚动等待时间应在 1000-10000 毫秒之间。', 'error');
             return;
         }
         if (tasksMaxRetries < 0 || tasksMaxRetries > 3) {
-            alert('❌ 任务最大重试次数应在 0-3 之间!');
+            showSettingsMessage('任务最大重试次数应在 0-3 之间。', 'error');
             return;
         }
         if (tasksRetryDelay < 500 || tasksRetryDelay > 10000) {
-            alert('❌ 任务重试延迟应在 500-10000 毫秒之间!');
+            showSettingsMessage('任务重试延迟应在 500-10000 毫秒之间。', 'error');
             return;
         }
         if (tasksCloseTabDelay < 1000 || tasksCloseTabDelay > 30000) {
-            alert('❌ 任务关闭延迟应在 1000-30000 毫秒之间!');
+            showSettingsMessage('任务关闭延迟应在 1000-30000 毫秒之间。', 'error');
             return;
         }
         if (!Number.isInteger(appReadDailyLimitMin) || !Number.isInteger(appReadDailyLimitMax) || appReadDailyLimitMin < 1 || appReadDailyLimitMax > 30 || appReadDailyLimitMin > appReadDailyLimitMax) {
-            alert('❌ 每日阅读上限区间应为 1-30 篇，且最小值不能大于最大值!');
+            showSettingsMessage('每日阅读上限区间应为 1-30 篇，且最小值不能大于最大值。', 'error');
             return;
         }
 
-        // 设置变更确认机制
-        if (!confirm('⚠️ 确认保存设置变更？\n\n保存后页面将自动刷新以应用新配置。')) {
-            return;
-        }
+        showSettingsConfirmation(
+            '确认保存配置',
+            '确认后会保存当前设置，并在 2 秒后自动刷新页面以应用新配置。',
+            '确认保存',
+            () => {
 
         // 保存所有配置（经 CONFIG setter 写入对应的 GM 存储键）
         CONFIG.searchFormParam = searchFormParam;
@@ -3590,16 +3675,15 @@ function showSettingsDialog(theme) {
             }
         });
 
-        // 显示成功提示
-        alert('✅ 配置已保存！确认后页面将在3秒后刷新以应用新配置...');
-
-        // 关闭对话框
-        closeDialog();
+        // 在设置界面内提示保存结果，保留对话框直到页面刷新。
+        showSettingsMessage('配置已保存，页面将在 2 秒后自动刷新以应用新配置。', 'success');
 
         // 延迟刷新页面
         setTimeout(() => {
             window.location.reload();
-        }, 3000);
+        }, 2000);
+            }
+        );
     });
 
     // ESC键关闭
@@ -4026,8 +4110,18 @@ async function getGroupedSearchWord(taskStatus) {
         currentCount < savedGroup.endCount
     ) {
         const group = await enrichSearchGroupFromPage(savedGroup, currentCount);
+        const queryIndex = currentCount - group.startCount;
+
+        // 联想词不足时提前结束当前组，下一次搜索立即以新的随机热词开组。
+        if (queryIndex >= group.queries.length) {
+            group.endCount = currentCount;
+            GM_setValue(groupKey, group);
+            GM_log(`联想词不足，结束词组「${group.seed}」并切换新的热词`);
+            return getGroupedSearchWord(taskStatus);
+        }
+
         GM_setValue(groupKey, group);
-        return group.queries[currentCount - group.startCount] || group.seed;
+        return group.queries[queryIndex];
     }
 
     const endCount = getNextPauseAt(currentCount);
@@ -4056,6 +4150,8 @@ async function fetchSearchKeywords() {
     const regionConfig = EXECUTION_REGIONS[region];
     // 缓存按地区隔离，切换地区后不会复用上一地区的关键词。
     const cacheKey = `cache_search_words_${region}`;
+    // 最近一次成功的网络热词单独保存：新任务清除短期缓存后，仍可在网络失败时回退。
+    const lastSuccessfulCacheKey = `last_successful_search_words_${region}`;
 
     let cached = null;
 
@@ -4225,6 +4321,25 @@ async function fetchSearchKeywords() {
         ...hotWordMap.values()
     ];
 
+    // 只将实际从热词接口获取到的结果记为成功缓存，不把本地兜底词写入其中。
+    if (words.length > 0) {
+        GM_setValue(lastSuccessfulCacheKey, {
+            words,
+            time: Date.now()
+        });
+    } else {
+        let lastSuccessful = null;
+
+        try {
+            lastSuccessful = GM_getValue(lastSuccessfulCacheKey, null);
+        } catch (e) {}
+
+        if (lastSuccessful && Array.isArray(lastSuccessful.words) && lastSuccessful.words.length > 0) {
+            words = [...lastSuccessful.words];
+            console.warn(`[${region.toUpperCase()}] 热词接口暂不可用，使用最近一次成功获取的地区热词`);
+        }
+    }
+
     const targetCount = getSearchTarget();
     if (words.length < targetCount) {
         const local =
@@ -4251,7 +4366,7 @@ async function fetchSearchKeywords() {
 
     words = utils.shuffleArray(words);
 
-    // 网络源和本地词库都异常时，保证调用方不会对空数组取模。
+    // 网络源、成功缓存和地区兜底词库都异常时，保证调用方不会对空数组取模。
     if (words.length === 0) {
         words = ['Bing'];
     }
@@ -5463,6 +5578,11 @@ GM_registerMenuCommand('📊 查看/隐藏面板', () => {
 GM_registerMenuCommand('⚙️ 配置脚本参数', () => {
     alert('请配置以下参数：\n\n1. searchFormParam: 登录Bing后手动搜索几次，从地址栏获取实际的form参数值\n2. minSearches / maxSearches: 设置每次任务的随机搜索次数区间\n3. 其他高级参数可根据需要调整\n\n配置完成后刷新页面开始使用。');
     window.open('https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/quickstart/', '_blank');
+});
+
+GM_registerMenuCommand('👨‍💻 关于作者', () => {
+    alert('作者：Brian\n版本：' + GM_info.script.version + '\n\n这是一个自动化完成微软必应每日搜索任务的脚本，帮助您轻松积累奖励积分。\n\n如果您觉得这个脚本有用，欢迎给作者点个Star！');
+    window.open('https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/', '_blank');
 });
 
 if (AppAuth.isAuthLandingPage()) {
