@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.9.30.10
+// @version      26.9.30.11
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*/*
@@ -4733,20 +4733,54 @@ async function performSearch(searchWord, taskStatus, runGeneration) {
     GM_log(`搜索: ${searchWord} (${nextCount}/${taskStatus.maxCount})`);
     state.countdownStartTime = 0;
     state.countdownDuration = 0;
+    const previousUrl = window.location.href;
+    const previousResults = document.querySelector('#b_results');
+    const previousResultsText = previousResults?.textContent || '';
     try {
         form.requestSubmit();
     } catch (error) {
         stopSearchWithError(`Bing 搜索表单提交失败：${error.message}`);
         return;
     }
-    // 表单提交被页面阻止时，不把这次尝试误记为已完成搜索。
-    utils.addTimer(setTimeout(() => {
+    monitorSubmittedSearch(searchWord, runGeneration, previousUrl, previousResults, previousResultsText);
+}
+
+/**
+ * Bing 可能在同一文档内更新搜索结果；整页跳转仍由新页面的 checkAndStartTask 接管。
+ */
+function monitorSubmittedSearch(searchWord, runGeneration, previousUrl, previousResults, previousResultsText) {
+    const startedAt = Date.now();
+    let timer = null;
+    const finish = () => {
+        clearInterval(timer);
+        state.timers.delete(timer);
+    };
+    const check = () => {
+        if (!isCurrentSearchRun(runGeneration)) return finish();
         const pending = GM_getValue('pendingSearchSubmission', null);
-        if (pending?.runGeneration === runGeneration && pending.searchWord === searchWord &&
-            isCurrentSearchRun(runGeneration)) {
-            stopSearchWithError('提交搜索表单后未进入结果页，任务已停止');
+        if (!pending || pending.runGeneration !== runGeneration || pending.searchWord !== searchWord) return finish();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const results = document.querySelector('#b_results');
+        const resultsUpdated = results && (!previousResults || results !== previousResults ||
+            results.textContent !== previousResultsText);
+        if (window.location.href !== previousUrl && window.location.pathname === '/search' &&
+            urlParams.get('q') === searchWord && resultsUpdated) {
+            finish();
+            if (settlePendingSearch(runGeneration, utils.getRandomStartParam(), urlParams) !== true) return;
+            utils.clearAllTimers();
+            state.isRunning = false;
+            utils.addTimer(setTimeout(() => executeSearch(runGeneration), 2000));
+            return;
         }
-    }, 15000));
+
+        if (Date.now() - startedAt >= 15000) {
+            finish();
+            stopSearchWithError('提交搜索表单后未确认对应的结果页，任务已停止');
+            return;
+        }
+    };
+    timer = utils.addTimer(setInterval(check, 250));
 }
 
 function settlePendingSearch(runGeneration, startParam, urlParams) {

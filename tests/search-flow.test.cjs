@@ -49,6 +49,8 @@ function harness(storage = new Map(), time = clock()) {
     if (!storage.has('searchRunGeneration')) storage.set('searchRunGeneration', 1);
     storage.set('customClickSearchResults', true);
     const state = { isRunning: true, timers: new Set(), searchResultTabs: new Set(), cancelSearchPause: null };
+    let resultsVisible = false;
+    const resultsNode = { textContent: '搜索结果' };
     const fields = [];
     const form = {
         method: 'get',
@@ -69,7 +71,10 @@ function harness(storage = new Map(), time = clock()) {
         ...time.globals, URL, URLSearchParams, Uint8Array, crypto: webcrypto, console,
         state, CONFIG: { clickSearchResults: true },
         window: { location: new URL('https://www.bing.com/search?q=test&task=1') },
-        document: { querySelector: () => input, createElement: () => ({}) },
+        document: {
+            querySelector: selector => selector === '#b_results' ? (resultsVisible ? resultsNode : null) : input,
+            createElement: () => ({})
+        },
         GM_getValue: (key, fallback) => storage.has(key) ? structuredClone(storage.get(key)) : fallback,
         GM_setValue: (key, value) => storage.set(key, structuredClone(value)),
         GM_deleteValue: key => storage.delete(key),
@@ -78,6 +83,7 @@ function harness(storage = new Map(), time = clock()) {
         isCurrentSearchRun: generation => state.isRunning && storage.get('searchRunGeneration') === generation,
         typeSearchWord: async (box, word) => { box.value = word; return true; },
         stopSearchWithError: message => { storage.delete('pendingSearchSubmission'); state.isRunning = false; state.error = message; },
+        executeSearch: generation => { state.resumedGeneration = generation; },
         getExecutionRegion: () => 'cn',
         EXECUTION_REGIONS: { cn: { language: 'zh-CN' } },
         getNextPauseAt: () => storage.get('nextPauseAt') ?? 2,
@@ -90,10 +96,11 @@ function harness(storage = new Map(), time = clock()) {
             clearAllTimers: () => time.timers.clear()
         }
     });
-    const names = ['setSearchFormField', 'performSearch', 'settlePendingSearch',
+    const names = ['setSearchFormField', 'performSearch', 'monitorSubmittedSearch', 'settlePendingSearch',
         'waitForSearchPause', 'openSearchResult', 'closeOpenedSearchResultTabs'];
     vm.runInContext(names.map(functionSource).join('\n'), context);
-    return { context, storage, time, state, input, form, fields };
+    return { context, storage, time, state, input, form, fields, resultsNode,
+        setResultsVisible: visible => { resultsVisible = visible; } };
 }
 
 test('组末搜索提交表单，结果页确认后计数并开始暂停', async () => {
@@ -198,14 +205,49 @@ test('Bing 未保留隐藏启动字段时，仅在结果页确认后补回标记
     assert.equal(h.storage.get('searchCount'), 1);
 });
 
-test('提交表单但未进入结果页时超时停止且不计数', async () => {
+test('提交表单但未确认对应结果页时超时停止且不计数', async () => {
     const h = harness();
     h.form.requestSubmit = () => {};
     await h.context.performSearch('测试', { currentCount: 0, maxCount: 10 }, 1);
     h.time.advance(15000);
-    assert.match(h.state.error, /未进入结果页/);
+    assert.match(h.state.error, /未确认对应的结果页/);
     assert.equal(h.storage.has('searchCount'), false);
     assert.equal(h.storage.has('pendingSearchSubmission'), false);
+});
+
+test('同页更新 URL 和搜索结果时确认搜索并继续任务', async () => {
+    const h = harness();
+    await h.context.performSearch('同页搜索', { currentCount: 0, maxCount: 10 }, 1);
+    assert.equal(h.storage.has('searchCount'), false);
+    h.setResultsVisible(true);
+    h.time.advance(250);
+    assert.equal(h.storage.get('searchCount'), 1);
+    assert.equal(h.storage.has('pendingSearchSubmission'), false);
+    assert.equal(h.state.error, undefined);
+    h.time.advance(2000);
+    assert.equal(h.state.resumedGeneration, 1);
+});
+
+test('仅 URL 更新而结果尚未显示时不提前计数', async () => {
+    const h = harness();
+    await h.context.performSearch('等待结果', { currentCount: 0, maxCount: 10 }, 1);
+    h.time.advance(500);
+    assert.equal(h.storage.has('searchCount'), false);
+    h.setResultsVisible(true);
+    h.time.advance(250);
+    assert.equal(h.storage.get('searchCount'), 1);
+});
+
+test('旧结果容器尚未更新时不提前计数', async () => {
+    const h = harness();
+    h.setResultsVisible(true);
+    h.resultsNode.textContent = '旧查询的结果';
+    await h.context.performSearch('新查询', { currentCount: 0, maxCount: 10 }, 1);
+    h.time.advance(250);
+    assert.equal(h.storage.has('searchCount'), false);
+    h.resultsNode.textContent = '新查询的结果';
+    h.time.advance(250);
+    assert.equal(h.storage.get('searchCount'), 1);
 });
 
 test('表单提交抛错时停止且不计数', async () => {
