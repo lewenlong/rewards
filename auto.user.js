@@ -1,16 +1,14 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.9.30.2
+// @version      26.9.30.10
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
-// @match        https://*.bing.com/*
-// @match        https://login.live.com/oauth20_desktop.srf*
+// @match        https://*/*
+// @match        http://*/*
+// @noframes
 // @license      MIT
 // @icon         https://www.bing.com/favicon.ico
-// @connect      top.baidu.com
-// @connect      www.toutiao.com
-// @connect      r.inews.qq.com
-// @connect      m.weibo.cn
+// @connect      www.soureci.com
 // @connect      login.live.com
 // @connect      prod.rewardsplatform.microsoft.com
 // @connect      www.bing.com
@@ -26,7 +24,6 @@
 // @grant        GM_notification
 // @grant        GM_log
 // @grant        GM_openInTab
-// @grant        GM_saveTab
 // @grant        GM_closeTab
 // @grant        GM_deleteValue
 // @downloadURL  https://raw.githubusercontent.com/lewenlong/rewards/main/auto.user.js
@@ -35,13 +32,148 @@
 
 'use strict';
 
+(function () {
+// 外部页面仅执行一次性阅读任务；普通页面不初始化搜索、APP 或设置功能。
+const readerMarker = /(?:#|&)rewardsReader=([a-f0-9]{32})$/.exec(window.location.hash);
+if (readerMarker) {
+    runSearchResultReader(readerMarker[1]);
+    return;
+}
+const scriptUrl = new URL(window.location.href);
+const isBingHost = scriptUrl.hostname === 'bing.com' || scriptUrl.hostname.endsWith('.bing.com');
+const isAuthPage = scriptUrl.hostname === 'login.live.com' && scriptUrl.pathname === '/oauth20_desktop.srf';
+if (scriptUrl.protocol !== 'https:' || (!isBingHost && !isAuthPage)) return;
+
+/**
+ * 在脚本打开且持有有效任务标记的页面中，沿正文边界滚动并按内容安排停留。
+ * 不依赖主流程状态，避免在外部页面初始化账号相关模块。
+ */
+function runSearchResultReader(token) {
+    const key = `search_result_read_${token}`;
+    const job = GM_getValue(key, null);
+    if (!job || job.status !== 'pending' || Date.now() >= job.expiresAt ||
+        Number(GM_getValue('searchRunGeneration', 0)) !== job.runGeneration) return;
+    // 跨域重定向未必仍是原结果页；此时交由来源页超时收尾。
+    if (new URL(job.url).origin !== window.location.origin) return;
+
+    const cleanUrl = new URL(window.location.href);
+    cleanUrl.hash = cleanUrl.hash.replace(/(?:#|&)rewardsReader=[a-f0-9]{32}$/, '');
+    try { window.history.replaceState(window.history.state, '', cleanUrl.href); } catch {}
+
+    const startedAt = Date.now();
+    const finishAt = Math.min(job.expiresAt, startedAt + job.duration);
+    GM_setValue(key, { ...job, status: 'reading', startedAt, finishAt });
+    let timer = null;
+    let finished = false;
+    let nextScrollAt = startedAt + getResultReadingStep().dwell;
+    const inputEvents = ['wheel', 'touchstart', 'pointerdown', 'keydown'];
+    const onUserInput = event => {
+        if (event.type === 'keydown' && !['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) return;
+        nextScrollAt = Math.max(nextScrollAt, Date.now() + 5000);
+    };
+    const onVisibilityChange = () => {
+        // 回到前台时先保留当前画面，避免把后台积压的滚动立即执行。
+        if (!document.hidden) nextScrollAt = Math.max(nextScrollAt, Date.now() + getResultReadingStep().dwell);
+    };
+    const finish = () => {
+        if (finished) return;
+        finished = true;
+        clearInterval(timer);
+        window.removeEventListener('pagehide', finish);
+        inputEvents.forEach(type => window.removeEventListener(type, onUserInput, true));
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        const current = GM_getValue(key, null);
+        if (current) GM_setValue(key, { ...current, status: 'finished' });
+    };
+    const tick = () => {
+        const current = GM_getValue(key, null);
+        const now = Date.now();
+        if (!current || now >= finishAt ||
+            Number(GM_getValue('searchRunGeneration', 0)) !== job.runGeneration ||
+            !GM_getValue('customClickSearchResults', false)) {
+            finish();
+            return;
+        }
+        if (document.hidden || now < nextScrollAt) return;
+        const active = document.activeElement;
+        if (active?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(active?.tagName || '') ||
+            window.getSelection()?.isCollapsed === false) {
+            nextScrollAt = now + 2000;
+            return;
+        }
+        const step = getResultReadingStep();
+        if (step.top <= window.scrollY + 2) {
+            // 正文已到末尾，继续停留，不为了完成滚动而进入页脚。
+            nextScrollAt = now + step.dwell;
+            return;
+        }
+        const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        window.scrollTo({ top: step.top, behavior: reduceMotion ? 'auto' : 'smooth' });
+        // 根据落点即将展示的内容安排停留，并为平滑滚动预留时间。
+        nextScrollAt = now + 600 + getResultReadingStep(step.top).dwell;
+    };
+    timer = setInterval(tick, 250);
+    window.addEventListener('pagehide', finish, { once: true });
+    inputEvents.forEach(type => window.addEventListener(type, onUserInput, { passive: true, capture: true }));
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    GM_registerMenuCommand('⏹️ 停止本页浏览', finish);
+}
+
+/**
+ * 用可见正文的段落边界决定下一落点，用当前屏文字量及图片决定停留时间。
+ * scrollTop 可指定预期落点，以便在平滑滚动完成前估算下一屏。
+ */
+function getResultReadingStep(scrollTop = window.scrollY) {
+    const viewport = Math.max(1, window.innerHeight);
+    const content = document.querySelector('article, main, [role="main"]') || document.body;
+    if (!content) return { top: scrollTop, dwell: 2200 };
+    const rect = content.getBoundingClientRect();
+    const pageEnd = Math.max(0, document.documentElement.scrollHeight - viewport);
+    const contentEnd = Math.min(pageEnd, Math.max(0, rect.bottom + window.scrollY - viewport));
+    const maxTop = Math.max(scrollTop, contentEnd);
+    const preferredTop = Math.min(maxTop, scrollTop + viewport * 0.65);
+    const boundaries = [];
+    let textUnits = 0;
+    let imageCount = 0;
+    const blocks = Array.from(content.querySelectorAll('h1, h2, h3, p, li, blockquote, pre, img'));
+    const blockSet = new Set(blocks);
+    for (const block of blocks) {
+        if (block.closest('nav, header, footer, aside, form, [aria-hidden="true"]')) continue;
+        const box = block.getBoundingClientRect();
+        if (box.width <= 0 || box.height <= 0 || window.getComputedStyle(block).visibility === 'hidden') continue;
+        const top = box.top + window.scrollY;
+        const bottom = box.bottom + window.scrollY;
+        const overlap = Math.max(0, Math.min(bottom, scrollTop + viewport) - Math.max(top, scrollTop));
+        if (overlap > 0) {
+            if (block.tagName === 'IMG') imageCount++;
+            else {
+                // li/blockquote 内的 p 等嵌套块只计一次文字量。
+                let parent = block.parentElement;
+                while (parent && !blockSet.has(parent)) parent = parent.parentElement;
+                if (!parent) {
+                    const units = (block.textContent.match(/[\u3400-\u9fff]|[\p{L}\p{N}]+/gu) || []).length;
+                    textUnits += units * Math.min(1, overlap / box.height);
+                }
+            }
+        }
+        // 新段落留在屏幕上方约一成处，保留上下屏之间的阅读衔接。
+        const candidate = top - viewport * 0.12;
+        if (candidate >= scrollTop + viewport * 0.3 && candidate <= scrollTop + viewport * 0.85 && candidate <= maxTop) {
+            boundaries.push(candidate);
+        }
+    }
+    const target = boundaries.sort((a, b) => Math.abs(a - preferredTop) - Math.abs(b - preferredTop))[0] ?? preferredTop;
+    return {
+        top: Math.round(Math.max(scrollTop, Math.min(maxTop, target))),
+        dwell: Math.round(Math.min(6500, 2200 + textUnits * 22 + Math.min(imageCount, 2) * 800))
+    };
+}
+
 // 配置参数
 
 // 用户可配置参数表：参数名 → { key: GM 存储键, default: 默认值 }
 // CONFIG 的 getter/setter、设置页读取、配置导出/导入均以此表为唯一定义处
 const CONFIG_SCHEMA = {
-    // 搜索form参数，⚠️ 手动进入https://cn.bing.com，确保登录后执行几次搜索，根据实际地址栏的form=xxx修改
-    searchFormParam: { key: 'customSearchFormParam', default: 'QBLH' },
     // 搜索与 APP 请求共用的执行地区
     executionRegion: { key: 'customExecutionRegion', default: 'cn' },
     // 面板默认是否收缩 (true=收缩, false=展开)
@@ -49,7 +181,7 @@ const CONFIG_SCHEMA = {
     // 每次任务随机搜索次数的下限
     minSearches: { key: 'customMinSearches', default: 15 },
     // 每次任务随机搜索次数的上限
-    maxSearches: { key: 'customMaxSearches', default: 20 },
+    maxSearches: { key: 'customMaxSearches', default: 25 },
     // 是否随机加词，如：人工智能发展  -->  人工1智能发z展
     randomAddSearchWords: { key: 'customRandomAddSearchWords', default: false },
     // 随机加词因子，控制加词的概率（0-1之间的小数），默认为0.3即30%概率添加字符
@@ -58,7 +190,7 @@ const CONFIG_SCHEMA = {
     randomCutSearchWords: { key: 'customRandomCutSearchWords', default: false },
     // 随机截词因子，控制截取的概率（0-1之间的小数），默认为0.2即20%概率截取字符
     randomCutSearchWordsFactor: { key: 'customRandomCutSearchWordsFactor', default: 0.2 },
-    // 是否点击搜索结果链接
+    // 是否前台打开正常搜索结果并沿正文滚动浏览
     clickSearchResults: { key: 'customClickSearchResults', default: false },
     // 暂停间隔范围：每执行多少次搜索后暂停一次的区间
     pauseIntervalMin: { key: 'customPauseIntervalMin', default: 2 },
@@ -128,8 +260,11 @@ const state = {
     isRunning: false,
     countdownStartTime: 0,
     countdownDuration: 0,
+    // 本页面自动打开的搜索结果标签页，用于任务终止时立即关闭。
+    searchResultTabs: new Set(),
+    cancelSearchPause: null,
     // 面板显示数据集中保存，避免各执行流程直接拼接显示状态。
-    panel: { currentWord: '', pauseTimeLeft: null },
+    panel: { currentWord: '', pauseTimeLeft: null, searchError: '' },
     // 任务点击相关状态（earn 日常任务 / dashboard 每日活动共用流程）
     taskFlows: {
         earn: { clicked: new Set(), retryCount: 0, processing: false },
@@ -150,7 +285,7 @@ const state = {
     }
 };
 
-// 搜索 URL 的 cc/setlang 参数及 APP 请求头共用的地区定义。
+// 搜索表单的 cc/setlang 参数及 APP 请求头共用的地区定义。
 const EXECUTION_REGIONS = {
     cn: { label: '中国大陆', language: 'zh-CN', appLanguage: 'zh', googleCeid: 'CN:zh-Hans', wikiProject: 'zhwiki' },
     hk: { label: '香港', language: 'zh-HK', appLanguage: 'zh', googleCeid: 'HK:zh-Hant', wikiProject: 'zhwiki' },
@@ -806,7 +941,6 @@ const AppTaskRunner = {
                     GM_log('APP阅读进度获取失败，跳过本次随机阅读');
                     return;
                 }
-                if (progress.current >= progress.total) return;
             }
 
             const dailyLimit = this.getReadDailyLimit();
@@ -815,8 +949,7 @@ const AppTaskRunner = {
                 this.completeReadDailyTargetIfReached();
                 return;
             }
-            const remaining = state.appTasks.readTotal - state.appTasks.readCurrent;
-            const maxBatch = Math.min(remaining, limitLeft);
+            const maxBatch = limitLeft;
             if (maxBatch <= 0) return;
 
             // 随机执行 0-3 次 APP 阅读上报
@@ -860,12 +993,12 @@ const AppTaskRunner = {
         GM_setValue('appReadProgressCache', { date: today, current: progress.current, total: progress.total });
         updateStatusPanel();
 
-        if (progress.current >= progress.total) {
+        if (this.getReadDailyProgress().completed) {
             GM_setValue('appReadDate', today);
             state.appTasks.readDone = true;
-            GM_log(`APP阅读任务已完成（已验证 ${progress.current}/${progress.total}）`);
+            GM_log('APP阅读已达到当天随机目标');
         } else if (GM_getValue('appReadDate', 0) === today && !this.getReadDailyProgress().completed) {
-            // 日期戳既非服务端完成、也未达到当天随机目标时才重置。
+            // 日期戳未对应当天随机目标时才重置。
             GM_log(`APP阅读标记有误（${progress.current}/${progress.total}），重置后继续`);
             GM_setValue('appReadDate', 0);
             state.appTasks.readDone = false;
@@ -888,22 +1021,22 @@ const AppTaskRunner = {
                 if (countRetry) this.bumpRetry('read');
                 return;
             }
-            // 重复上报（服务端未新增计数）不累加本地计数，防止进度漂移
-            if (!result.duplicate) {
-                state.appTasks.readCurrent++;
+            if (result.duplicate) {
+                GM_log(`APP阅读第 ${i + 1} 篇为重复上报，本次不计入进度并结束当前批次`);
+                return;
             }
+            state.appTasks.readCurrent++;
             this.bumpReadReported();
             GM_setValue('appReadProgressCache', { date: today, current: state.appTasks.readCurrent, total: state.appTasks.readTotal });
             updateStatusPanel();
             if (this.completeReadDailyTargetIfReached()) break;
-            if (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal) break;
             // 篇间随机间隔，模拟真实阅读行为
             if (i < count - 1) {
                 await new Promise(resolve => setTimeout(resolve, 3000 + Math.floor(Math.random() * 5000)));
             }
         }
 
-        if (this.getReadDailyProgress().completed || (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal)) {
+        if (this.getReadDailyProgress().completed) {
             GM_setValue('appReadDate', today);
             state.appTasks.readDone = true;
             GM_log('APP阅读任务完成');
@@ -923,7 +1056,6 @@ const AppTaskRunner = {
             GM_log('APP阅读进度获取失败，稍后重试');
             return;
         }
-        if (progress.current >= progress.total) return;
         if (!this.retryLeft('read')) {
             GM_log('APP阅读重试次数已用尽，今日不再执行');
             return;
@@ -935,7 +1067,7 @@ const AppTaskRunner = {
             this.completeReadDailyTargetIfReached();
             return;
         }
-        const remaining = Math.min(progress.total - progress.current, limitLeft);
+        const remaining = limitLeft;
         if (remaining <= 0) {
             GM_log(`APP阅读已达每日上报上限（${dailyLimit} 篇），今日不再上报`);
             return;
@@ -1085,11 +1217,6 @@ const utils = {
             [result[i], result[j]] = [result[j], result[i]]; // 交换元素
         }
         return result;
-    },
-
-    // 生成随机ID
-    generateId() {
-        return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
     },
 
     // 获取精确的剩余时间（不受标签页激活状态影响）
@@ -1272,37 +1399,6 @@ function getRegionFallbackSearchWords(region) {
     return REGION_FALLBACK_SEARCH_WORDS[region] || SEARCH_WORDS;
 }
 
-
-/**
- * 构建搜索URL
- */
-function buildSearchUrl(searchWord) {
-    const domain = 'https://www.bing.com';
-    const region = getExecutionRegion();
-    const regionConfig = EXECUTION_REGIONS[region];
-    const form = CONFIG.searchFormParam;
-
-    const length = searchWord.length;
-    const hitPosition = Math.random() < 0.9 ? 0 : Math.floor(Math.random() * Math.min(length, 5)) + 1;
-    const sc = `${hitPosition}-${length}`;
-
-    const urlParams = new URLSearchParams({
-        q: searchWord,
-        form,
-        sp: -1,
-        lq: 0,
-        pq: searchWord,
-        sc,
-        qs: 'n',
-        sk: '',
-        cvid: utils.generateId(),
-        cc: region,
-        setlang: regionConfig.language
-    });
-
-    const startParam = utils.getRandomStartParam();
-    return `${domain}/search?${urlParams.toString()}&${startParam}=1`;
-}
 
 /**
  * 创建状态面板
@@ -1826,7 +1922,6 @@ function showSettingsDialog(theme) {
         : '未授权';
 
     console.log('📋 加载最新设置:', {
-        searchFormParam: saved.searchFormParam,
         panelCollapsed: saved.panelDefaultCollapsed,
         searchCountRange: `${saved.minSearches}-${saved.maxSearches}`,
         randomAdd: saved.randomAddSearchWords,
@@ -1908,22 +2003,6 @@ function showSettingsDialog(theme) {
                             <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
                         </div>
                         <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="form-card" style="margin-bottom:18px;padding:20px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="搜索表单参数 form参数">
-                            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                <span style="font-size:16px;">🔍</span>
-                                搜索表单参数
-                                <span style="color:#f44336;">*</span>
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="登录必应后手动搜索几次，从地址栏获取form=xxx参数值">❓</span>
-                            </label>
-                            <input type="text" id="search-form-param-input" class="form-input" value="${utils.escapeHtml(saved.searchFormParam)}"
-                                style="width:100%;box-sizing:border-box;padding:14px 16px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:48px;font-weight:500;letter-spacing:0.5px;"
-                                placeholder="例如: QBLH">
-                            <div class="form-hint" style="margin-top:10px;font-size:12px;color:${theme['--panel-text-muted']};line-height:1.7;display:flex;align-items:flex-start;gap:6px;">
-                                <span style="flex-shrink:0;">💡</span>
-                                <span>登录必应后手动搜索几次，从地址栏获取 <code style="background:${theme['--panel-bg']};padding:3px 8px;border-radius:6px;font-family:'Courier New',monospace;font-size:11px;font-weight:600;border:1px solid ${theme['--panel-border']};">form=xxx</code> 参数值</span>
-                            </div>
-                        </div>
-
                         <div class="form-card" style="margin-bottom:18px;padding:20px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="执行地区 国家 区域 搜索地区 APP地区">
                             <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
                                 <span style="font-size:16px;">🌐</span>
@@ -1956,7 +2035,7 @@ function showSettingsDialog(theme) {
                             </div>
                             <div class="form-hint" style="margin-top:10px;font-size:12px;color:${theme['--panel-text-muted']};line-height:1.7;display:flex;align-items:flex-start;gap:6px;">
                                 <span style="flex-shrink:0;">⚠️</span>
-                                <span>每次开始时会从该区间随机选取一个次数；任务进行中目标次数保持不变。建议范围为 <strong style="color:${theme['--panel-warning-text']};">10-20 次</strong></span>
+                                <span>每次开始时会从该区间随机选取一个次数；任务进行中目标次数保持不变。默认范围为 <strong style="color:${theme['--panel-warning-text']};">15-25 次</strong></span>
                             </div>
                         </div>
 
@@ -2073,19 +2152,19 @@ function showSettingsDialog(theme) {
                             </div>
                         </div>
                         <div class="checkbox-cards" style="margin-top:14px;">
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.clickSearchResults ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.clickSearchResults ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="点击搜索结果链接">
+                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.clickSearchResults ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.clickSearchResults ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="搜索结果 手动打开链接">
                                 ${saved.clickSearchResults ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
                                 <input type="checkbox" id="click-search-results-checkbox" ${saved.clickSearchResults ? 'checked' : ''}
                                     style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
                                 <div style="flex:1;">
                                     <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
                                         <span style="font-size:16px;">🔗</span>
-                                        点击搜索结果链接
+                                        自动打开搜索结果
                                     </div>
                                     <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;background:${theme['--panel-bg']};padding:12px 14px;border-radius:8px;border:1px solid ${theme['--panel-border']};">
-                                        <div style="margin-bottom:8px;">搜索完成后自动点击（非100%）一个搜索结果链接，模拟真实用户行为。</div>
+                                        <div style="margin-bottom:8px;">搜索完成后转到一条正常搜索结果，按正文段落滚动并停留 10–30 秒；手动操作时暂停滚动，结束后关闭并继续任务。</div>
                                         <div style="color:${theme['--panel-warning-color']};font-weight:500;padding:6px 8px;background:${theme['--panel-warning-bg']};border-radius:6px;border-left:3px solid ${theme['--panel-warning-color']};">
-                                            ⚠️ 注意：首次运行请允许弹出窗口。
+                                            ⚠️ 仅从正常搜索结果标题中选取；找不到合适结果时会跳过。
                                         </div>
                                     </div>
                                 </div>
@@ -2936,7 +3015,6 @@ function showSettingsDialog(theme) {
     const cancelBtn = document.getElementById('settings-cancel-btn');
     const resetBtn = document.getElementById('settings-reset-btn');
     const saveBtn = document.getElementById('settings-save-btn');
-    const searchFormInput = document.getElementById('search-form-param-input');
     const executionRegionInput = document.getElementById('execution-region-input');
     const minSearchesInput = document.getElementById('min-searches-input');
     const maxSearchesInput = document.getElementById('max-searches-input');
@@ -3397,7 +3475,7 @@ function showSettingsDialog(theme) {
     });
 
     // 输入框焦点效果
-    [searchFormInput, executionRegionInput, minSearchesInput, maxSearchesInput, randomAddFactorInput, randomCutFactorInput,
+    [executionRegionInput, minSearchesInput, maxSearchesInput, randomAddFactorInput, randomCutFactorInput,
      pauseIntervalMinInput, pauseIntervalMaxInput, pauseTimeMinInput, pauseTimeMaxInput,
      minDelayInput, maxDelayInput].forEach(input => {
         input.addEventListener('focus', () => {
@@ -3523,7 +3601,6 @@ function showSettingsDialog(theme) {
     });
 
     const restoreDefaultFormValues = () => {
-        searchFormInput.value = 'QBLH';
         executionRegionInput.value = 'cn';
         // 设置面板状态为展开
         Array.from(panelStateRadios).forEach(r => {
@@ -3531,7 +3608,7 @@ function showSettingsDialog(theme) {
             r.dispatchEvent(new Event('change'));
         });
         minSearchesInput.value = 15;
-        maxSearchesInput.value = 20;
+        maxSearchesInput.value = 25;
         randomAddCheckbox.checked = false;
         randomAddFactorInput.value = 0.3;
         randomCutCheckbox.checked = false;
@@ -3576,7 +3653,6 @@ function showSettingsDialog(theme) {
     });
 
     saveBtn.addEventListener('click', () => {
-        const searchFormParam = searchFormInput.value.trim();
         const executionRegion = executionRegionInput.value;
         const minSearches = parseInt(minSearchesInput.value);
         const maxSearches = parseInt(maxSearchesInput.value);
@@ -3604,10 +3680,6 @@ function showSettingsDialog(theme) {
         const appUaPreset = appUaPresetSelect.value;
 
         // 验证
-        if (!searchFormParam) {
-            showSettingsMessage('请输入有效的搜索表单参数。', 'error');
-            return;
-        }
         if (!EXECUTION_REGIONS[executionRegion]) {
             showSettingsMessage('请选择有效的执行地区。', 'error');
             return;
@@ -3668,7 +3740,6 @@ function showSettingsDialog(theme) {
             () => {
 
         // 保存所有配置（经 CONFIG setter 写入对应的 GM 存储键）
-        CONFIG.searchFormParam = searchFormParam;
         CONFIG.executionRegion = executionRegion;
         CONFIG.panelDefaultCollapsed = panelDefaultCollapsed;
         CONFIG.minSearches = minSearches;
@@ -3698,7 +3769,6 @@ function showSettingsDialog(theme) {
         GM_setValue('appReadLimitDate', 0);
 
         console.log('💾 保存设置:', {
-            searchFormParam,
             executionRegion,
             panelDefaultCollapsed,
             searchCountRange: `${minSearches}-${maxSearches}`,
@@ -3790,7 +3860,7 @@ function getTaskSummaryPanelHtml() {
             value = readProgress.completed
                 ? pillSuccess(`✓ ${text}`)
                 : pill(text, 'var(--panel-primary-color,#0067b8)', 'var(--panel-info-bg,#f0f7ff)');
-        } else if (state.appTasks.readDone || (state.appTasks.readTotal > 0 && state.appTasks.readCurrent >= state.appTasks.readTotal)) {
+        } else if (state.appTasks.readDone) {
             value = pillSuccess('✓ 已完成');
         } else {
             value = pillMuted();
@@ -3865,12 +3935,31 @@ function buildPanelNotice(icon, text, variant = 'info') {
 function resetPanelStatus() {
     state.panel.currentWord = '';
     state.panel.pauseTimeLeft = null;
+    state.panel.searchError = '';
     state.countdownStartTime = 0;
     state.countdownDuration = 0;
 }
 
 function isTaskTerminatedToday() {
     return GM_getValue('searchTerminatedDate', '') === utils.getTodayStr();
+}
+
+function isCurrentSearchRun(runGeneration) {
+    return state.isRunning &&
+        !isTaskTerminatedToday() &&
+        Number(GM_getValue('searchRunGeneration', 0)) === runGeneration;
+}
+
+function stopSearchWithError(message) {
+    GM_deleteValue('pendingSearchSubmission');
+    GM_deleteValue('searchPauseState');
+    utils.clearAllTimers();
+    state.isRunning = false;
+    state.panel.searchError = message;
+    GM_log(message);
+    createStatusPanel();
+    updateStatusPanel();
+    GM_notification({ text: message, title: '搜索任务已停止', timeout: 5000 });
 }
 
 function derivePanelStatus(taskStatus) {
@@ -3959,6 +4048,7 @@ function updateStatusPanel(data = {}) {
 
     content.innerHTML = `
         <div style="display:grid;gap:12px;">
+            ${state.panel.searchError ? buildPanelNotice('⚠️', state.panel.searchError, 'warning') : ''}
             <!-- 任务状态摘要（APP签到 / APP阅读 / 日常任务 / 每日活动，单行 4 列） -->
             ${getTaskSummaryPanelHtml()}
 
@@ -4046,7 +4136,7 @@ async function fetchBingSuggestions(seed, region, limit) {
                     const suggestions = rawSuggestions
                         .map(item => typeof item === 'string' ? item : item?.Txt)
                         .filter(item => typeof item === 'string')
-                        .map(item => item.trim())
+                        .map(item => normalizeAssociation(item, seed))
                         .filter(item => item && item.toLocaleLowerCase() !== normalizedSeed);
                     resolve([...new Set(suggestions)].slice(0, limit));
                 } catch {
@@ -4087,7 +4177,9 @@ const ASSOCIATION_UI_TEXT = new Set([
     'see more',
     'report an issue',
     '告诉我们更多',
+    '告诉我们更多信息',
     '告訴我們更多',
+    '告訴我們更多資訊',
     '反馈',
     '回饋',
     '了解更多',
@@ -4236,6 +4328,7 @@ async function fetchSearchKeywords() {
     const regionConfig = EXECUTION_REGIONS[region];
     // 缓存按地区隔离，切换地区后不会复用上一地区的关键词。
     const cacheKey = `cache_search_words_${region}`;
+    const sourceRevision = region === 'cn' ? 'soureci-heat-100' : 'google-trends';
     // 最近一次成功的网络热词单独保存：新任务清除短期缓存后，仍可在网络失败时回退。
     const lastSuccessfulCacheKey = `last_successful_search_words_${region}`;
 
@@ -4250,6 +4343,7 @@ async function fetchSearchKeywords() {
         cached.time &&
         Array.isArray(cached.words) &&
         cached.words.length > 0 &&
+        (region !== 'cn' || cached.sourceRevision === sourceRevision) &&
         Date.now() - cached.time < 3600000
     ) {
         return cached.words;
@@ -4300,45 +4394,17 @@ async function fetchSearchKeywords() {
         } */
     ];
 
-    // 中国大陆使用国内热榜，其他地区使用带 geo 参数的 Google Trends。
+    // 中国大陆使用 Soureci 热词榜，其他地区使用带 geo 参数的 Google Trends。
     const chinaSources = [
         {
-            name: '今日头条热榜',
-            url: 'https://www.toutiao.com/hot-event/hot-board/?origin=toutiao_pc',
+            name: 'Soureci 热词榜',
+            url: 'https://www.soureci.com/api/trends',
             responseType: 'json',
-            headers: { Referer: 'https://www.toutiao.com/' },
-            parser: data => (data?.data || [])
-                .map(item => item.Title)
+            parser: data => (Array.isArray(data) ? data : [])
+                .sort((a, b) => Number(b?.heat || 0) - Number(a?.heat || 0))
+                .map(item => item?.keyword?.trim())
                 .filter(Boolean)
-                .slice(0, 30)
-        },
-        {
-            name: '微博实时热点',
-            url: 'https://m.weibo.cn/api/container/getIndex?containerid=106003type%3D25%26t%3D3%26disable_hot%3D1%26filter_type%3Drealtimehot',
-            responseType: 'json',
-            headers: { Referer: 'https://m.weibo.cn/' },
-            parser: data => (data?.data?.cards?.[0]?.card_group || [])
-                .map(item => item.desc?.trim())
-                .filter(Boolean)
-                .slice(0, 30)
-        },
-        {
-            name: '百度热搜',
-            url: 'https://top.baidu.com/api/board?tab=realtime',
-            responseType: 'json',
-            parser: data => (data?.data?.cards?.[0]?.content || [])
-                .map(item => item.word?.trim())
-                .filter(Boolean)
-                .slice(0, 30)
-        },
-        {
-            name: '腾讯新闻热点',
-            url: 'https://r.inews.qq.com/gw/event/hot_ranking_list?page_size=50',
-            responseType: 'json',
-            parser: data => (data?.idlist?.[0]?.newslist || [])
-                .map(item => item.title?.trim())
-                .filter(Boolean)
-                .slice(0, 50)
+                .slice(0, 100)
         }
     ];
     const sources = region === 'cn' ? chinaSources : internationalSources;
@@ -4411,6 +4477,7 @@ async function fetchSearchKeywords() {
     if (words.length > 0) {
         GM_setValue(lastSuccessfulCacheKey, {
             words,
+            sourceRevision,
             time: Date.now()
         });
     } else {
@@ -4420,7 +4487,8 @@ async function fetchSearchKeywords() {
             lastSuccessful = GM_getValue(lastSuccessfulCacheKey, null);
         } catch (e) {}
 
-        if (lastSuccessful && Array.isArray(lastSuccessful.words) && lastSuccessful.words.length > 0) {
+        if (lastSuccessful && Array.isArray(lastSuccessful.words) && lastSuccessful.words.length > 0 &&
+            (region !== 'cn' || lastSuccessful.sourceRevision === sourceRevision)) {
             words = [...lastSuccessful.words];
             console.warn(`[${region.toUpperCase()}] 热词接口暂不可用，使用最近一次成功获取的地区热词`);
         }
@@ -4461,6 +4529,7 @@ async function fetchSearchKeywords() {
         cacheKey,
         {
             words,
+            sourceRevision,
             time: Date.now()
         }
     );
@@ -4508,24 +4577,37 @@ function getTaskStatus() {
 /**
  * 执行搜索任务
  */
-async function executeSearch() {
-    if (state.isRunning) return;
+async function executeSearch(runGeneration) {
+    if (state.isRunning || isTaskTerminatedToday() ||
+        Number(GM_getValue('searchRunGeneration', 0)) !== runGeneration) return;
     state.isRunning = true;
 
     createStatusPanel();
     const taskStatus = getTaskStatus();
 
+    // 当前结果页先完成浏览，再进入组间暂停或下一次搜索。
+    // 暂停中刷新页面时不重复打开该条结果。
+    const pendingPause = GM_getValue('searchPauseState', null);
+    const resumingPause = pendingPause?.runGeneration === runGeneration && pendingPause.resumeAt > 0;
+    if (!resumingPause) await openSearchResult(runGeneration);
+    if (!isCurrentSearchRun(runGeneration)) return;
+
     if (taskStatus.isCompleted) {
+        GM_deleteValue('searchPauseState');
         // 兜底：搜索完成后若 APP 任务未全部完成，补跑确保签到与阅读完成
         if ((CONFIG.appCheckInEnabled || CONFIG.appReadEnabled) && !AppTaskRunner.isAllDone()) {
             await AppTaskRunner.runAll();
         }
+        if (!isCurrentSearchRun(runGeneration)) return;
+        closeOpenedSearchResultTabs();
         resetPanelStatus();
         updateStatusPanel();
         GM_notification({ text: "Bing Rewards 任务已完成", title: "任务完成", timeout: 3000 });
         state.isRunning = false;
         return;
     }
+
+    if (!await waitForSearchPause(runGeneration)) return;
 
     // 更新标题
     const title = document.querySelector('title');
@@ -4539,6 +4621,7 @@ async function executeSearch() {
             state.searchWords = utils.shuffleArray(getRegionFallbackSearchWords(getExecutionRegion()));
         }
     }
+    if (!isCurrentSearchRun(runGeneration)) return;
 
     // 防御损坏缓存或所有热词源均失败造成的空数组取模。
     if (!Array.isArray(state.searchWords) || state.searchWords.length === 0) {
@@ -4549,6 +4632,7 @@ async function executeSearch() {
     }
 
     const searchWord = await getGroupedSearchWord(taskStatus);
+    if (!isCurrentSearchRun(runGeneration)) return;
 
     // 对搜索词进行处理
     const processedSearchWord = utils.processSearchWord(searchWord);
@@ -4564,10 +4648,13 @@ async function executeSearch() {
 
     // 使用精确计时器,不受页面可见性影响
     utils.addTimer(setTimeout(() => {
+        if (!isCurrentSearchRun(runGeneration)) return;
         utils.clearAllTimers();
         // 搜索执行前随机完成 0-3 次 APP 阅读上报（阅读开关开启且当日未完成时），完成后继续搜索
         AppTaskRunner.runRandomReads().finally(() => {
-            performSearch(processedSearchWord, taskStatus);
+            if (isCurrentSearchRun(runGeneration)) {
+                performSearch(processedSearchWord, taskStatus, runGeneration);
+            }
         });
     }, delay));
 
@@ -4578,352 +4665,287 @@ async function executeSearch() {
 }
 
 /**
- * 执行搜索
+ * 在当前 Bing 页面的可见搜索框中逐字输入；合成事件不等同于受信任的键盘事件。
  */
-function performSearch(searchWord, taskStatus) {
+async function typeSearchWord(input, searchWord, runGeneration) {
+    const nativeSetter = typeof HTMLInputElement === 'undefined'
+        ? null : Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    const setValue = value => {
+        if (nativeSetter) nativeSetter.call(input, value);
+        else input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    input.focus();
+    setValue('');
+    let text = '';
+    for (const character of searchWord) {
+        if (!isCurrentSearchRun(runGeneration)) return false;
+        text += character;
+        setValue(text);
+        await new Promise(resolve => setTimeout(resolve, 65 + Math.floor(Math.random() * 105)));
+    }
+    if (!isCurrentSearchRun(runGeneration) || input.value !== searchWord) return false;
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+}
 
+function setSearchFormField(form, name, value) {
+    let field = Array.from(form.querySelectorAll('input[name]'))
+        .find(input => input.name === name && input.type === 'hidden');
+    if (!field) {
+        field = document.createElement('input');
+        field.type = 'hidden';
+        field.name = name;
+        form.appendChild(field);
+    }
+    field.value = value;
+}
+
+/**
+ * 提交真实搜索表单。直到下一页确认查询词后，才将本次搜索计入进度。
+ */
+async function performSearch(searchWord, taskStatus, runGeneration) {
+    if (!isCurrentSearchRun(runGeneration)) return;
+    const input = document.querySelector('#sb_form_q') ||
+        document.querySelector('form[action*="/search"] input[name="q"]');
+    const form = input?.form || input?.closest('form');
+    if (!input || input.disabled || input.type === 'hidden' || !input.getClientRects().length ||
+        !form || form.method.toLowerCase() !== 'get' || typeof form.requestSubmit !== 'function') {
+        stopSearchWithError('未找到可用的 Bing 搜索框或搜索表单，请检查页面后重新开始任务');
+        return;
+    }
+
+    const typed = await typeSearchWord(input, searchWord, runGeneration);
+    if (!isCurrentSearchRun(runGeneration)) return;
+    if (!typed) {
+        stopSearchWithError('搜索框内容与待搜索词不一致，任务已停止');
+        return;
+    }
+
+    const region = getExecutionRegion();
+    setSearchFormField(form, utils.getRandomStartParam(), '1');
+    setSearchFormField(form, 'cc', region);
+    setSearchFormField(form, 'setlang', EXECUTION_REGIONS[region].language);
     const nextCount = taskStatus.currentCount + 1;
-    const counterKey = 'searchCount';
-
-    GM_setValue(counterKey, nextCount);
+    GM_setValue('pendingSearchSubmission', {
+        runGeneration, searchWord, nextCount, maxCount: taskStatus.maxCount
+    });
     GM_log(`搜索: ${searchWord} (${nextCount}/${taskStatus.maxCount})`);
-
-    // 重置倒计时状态
     state.countdownStartTime = 0;
     state.countdownDuration = 0;
-
-    // 词组边界与暂停边界一致，避免随机间隔变化后出现过短词组。
-    const nextPauseAt = getNextPauseAt(taskStatus.currentCount);
-    if (nextCount >= nextPauseAt) {
-        // 每次暂停时生成新的随机暂停时间
-        const pauseTime = utils.getRandomPauseTime();
-        let pauseTimeLeft = pauseTime / 1000;
-        updateStatusPanel({ pauseTimeLeft });
-
-        // 使用精确的暂停计时
-        const pauseStartTime = Date.now();
-        const pauseTimer = utils.addTimer(setInterval(() => {
-            const elapsed = Date.now() - pauseStartTime;
-            pauseTimeLeft = Math.max(0, (pauseTime - elapsed) / 1000);
-            updateStatusPanel({ pauseTimeLeft });
-
-            if (pauseTimeLeft <= 0) {
-                utils.clearAllTimers();
-
-                // 完成暂停后，重新生成下一个暂停间隔
-                const newPauseInterval = utils.getRandomPauseInterval();
-                GM_setValue('currentPauseInterval', newPauseInterval);
-                GM_setValue('nextPauseAt', nextCount + newPauseInterval);
-
-                window.location.href = buildSearchUrl(searchWord);
-            }
-        }, 1000));
-    } else {
-        window.location.href = buildSearchUrl(searchWord);
-    }
-}
-
-/**
- * 页面加载完成后执行随机滚动，模拟真实用户行为
- * 随机滚动多次，方向（上滑/下滑）和次数都是随机的
- */
-function randomScrollAfterPageLoad() {
-    // 等待页面内容完全加载
-    setTimeout(() => {
-        const scrollHeight = Math.max(document.documentElement.scrollHeight, document.body.scrollHeight);
-        const viewportHeight = window.innerHeight;
-        const maxScroll = scrollHeight - viewportHeight;
-
-        // 如果页面可以滚动
-        if (maxScroll > 0) {
-            // 随机生成滚动次数（2-5次）
-            const scrollCount = Math.floor(Math.random() * 4) + 2;
-            GM_log(`开始随机滚动，总次数: ${scrollCount}次`);
-
-            // 执行多次随机滚动
-            let currentScroll = window.scrollY;
-            for (let i = 0; i < scrollCount; i++) {
-                setTimeout(() => {
-                    // 随机决定滚动方向：true=下滑，false=上滑
-                    const scrollDown = Math.random() > 0.2;
-
-                    // 随机生成滚动距离（100-800px）
-                    const scrollDistance = Math.floor(Math.random() * 700) + 100;
-
-                    // 计算新的滚动位置
-                    let newScrollPosition;
-                    if (scrollDown) {
-                        // 下滑：当前位置 + 随机距离，不超过最大滚动位置
-                        newScrollPosition = Math.min(currentScroll + scrollDistance, maxScroll);
-                    } else {
-                        // 上滑：当前位置 - 随机距离，不小于0
-                        newScrollPosition = Math.max(currentScroll - scrollDistance, 0);
-                    }
-
-                    // 执行滚动
-                    window.scrollTo({
-                        top: newScrollPosition,
-                        behavior: 'smooth'
-                    });
-
-                    // 更新当前位置
-                    currentScroll = newScrollPosition;
-
-                    const direction = scrollDown ? '下滑' : '上滑';
-                    GM_log(`第${i + 1}次滚动: ${direction} ${scrollDistance}px，目标位置: ${newScrollPosition}px`);
-
-                    // 如果是最后一次滚动，滚动结束后检查并点击链接
-                    if (i === scrollCount - 1) {
-                        setTimeout(() => {
-                            checkAndClickSearchResult();
-                        }, 1500); // 等待滚动动画完成
-                    }
-
-                }, i * 1000); // 每次滚动间隔1秒，模拟真实用户操作
-            }
-        } else {
-            // 页面无法滚动，直接检查并点击链接
-            checkAndClickSearchResult();
-        }
-    }, 2500); // 等待2.5秒让页面内容加载完成
-}
-
-/**
- * 检查当前页面是否为搜索结果页且包含启动参数，如果是则点击搜索结果链接
- */
-function checkAndClickSearchResult() {
     try {
-        // 前置检查
-        if (!CONFIG.clickSearchResults) return;
-
-        const isSearchPage = /\/search/.test(window.location.pathname) && /[?&]q=/.test(window.location.search);
-        if (!isSearchPage) return;
-
-        const startParam = utils.getRandomStartParam();
-        const urlParams = new URLSearchParams(window.location.search);
-        if (!urlParams.has(startParam)) return;
-
-        GM_log(`检测到搜索结果页，准备点击链接`);
-
-        // 尝试从标准搜索结果中查找链接
-        let targetLink = findLinkFromSearchResults();
-
-        // 降级策略：如果未找到，查找页面全部链接
-        if (!targetLink) {
-            GM_log('未找到标准搜索结果，尝试查找页面全部链接');
-            targetLink = findAnyValidLinkOnPage();
-        }
-
-        if (!targetLink) {
-            GM_log('未找到可点击的有效链接');
-            return;
-        }
-
-        GM_log(`点击链接: ${targetLink.href}`);
-        simulateHumanClick(targetLink);
-
+        form.requestSubmit();
     } catch (error) {
-        GM_log(`点击搜索结果时出错: ${error.message}`);
-        console.error(error);
+        stopSearchWithError(`Bing 搜索表单提交失败：${error.message}`);
+        return;
     }
+    // 表单提交被页面阻止时，不把这次尝试误记为已完成搜索。
+    utils.addTimer(setTimeout(() => {
+        const pending = GM_getValue('pendingSearchSubmission', null);
+        if (pending?.runGeneration === runGeneration && pending.searchWord === searchWord &&
+            isCurrentSearchRun(runGeneration)) {
+            stopSearchWithError('提交搜索表单后未进入结果页，任务已停止');
+        }
+    }, 15000));
 }
 
-/**
- * 从标准搜索结果中查找可点击的链接
- * @returns {HTMLAnchorElement|null}
- */
-function findLinkFromSearchResults() {
-    const searchResults = Array.from(document.querySelectorAll('li.b_algo'))
-        .filter(result => isElementVisible(result));
-
-    if (searchResults.length === 0) {
+function settlePendingSearch(runGeneration, startParam, urlParams) {
+    const pending = GM_getValue('pendingSearchSubmission', null);
+    if (!pending) return false;
+    if (pending.runGeneration !== runGeneration) {
+        GM_deleteValue('pendingSearchSubmission');
+        return false;
+    }
+    const currentCount = Number(GM_getValue('searchCount', 0));
+    if (window.location.pathname !== '/search' || urlParams.get('q') !== pending.searchWord ||
+        pending.nextCount !== currentCount + 1) {
+        stopSearchWithError('搜索结果与提交的关键词不一致，本次未计数');
         return null;
     }
 
-    GM_log(`找到 ${searchResults.length} 个可见的搜索结果`);
-
-    // 最多尝试5次
-    const maxAttempts = Math.min(5, searchResults.length);
-
-    for (let i = 0; i < maxAttempts; i++) {
-        const randomIndex = Math.floor(Math.random() * searchResults.length);
-        const result = searchResults[randomIndex];
-        const link = findClickableLink(result);
-
-        if (link && isElementVisible(link)) {
-            GM_log(`成功找到有效链接`);
-            return link;
+    // Bing 若未保留自定义隐藏字段，只在已确认的结果页补回脚本续跑标记。
+    if (!urlParams.has(startParam)) {
+        const url = new URL(window.location.href);
+        url.searchParams.set(startParam, '1');
+        try {
+            window.history.replaceState(window.history.state, '', url.href);
+        } catch {
+            stopSearchWithError('搜索结果页无法保留脚本启动标记，本次未计数');
+            return null;
         }
+        urlParams.set(startParam, '1');
     }
-
-    return null;
-}
-
-/**
- * 检查元素是否在当前窗口可见
- * @param {Element} element - 要检查的元素
- * @returns {boolean} - 元素是否在当前窗口可见
- */
-function isElementVisible(element) {
-    try {
-        if (!element) {
-            return false;
-        }
-
-        const rect = element.getBoundingClientRect();
-        const windowHeight = window.innerHeight || document.documentElement.clientHeight;
-        const windowWidth = window.innerWidth || document.documentElement.clientWidth;
-
-        // 检查元素是否在视口内
-        return (
-            rect.top >= 0 &&
-            rect.left >= 0 &&
-            rect.bottom <= windowHeight &&
-            rect.right <= windowWidth
-        );
-    } catch (error) {
-        GM_log(`检查元素可见性时出错: ${error.message}`);
-        return false;
+    GM_setValue('searchCount', pending.nextCount);
+    const nextPauseAt = getNextPauseAt(currentCount);
+    if (pending.nextCount >= nextPauseAt && pending.nextCount < pending.maxCount) {
+        GM_setValue('searchPauseState', {
+            runGeneration,
+            afterCount: pending.nextCount,
+            duration: utils.getRandomPauseTime(),
+            resumeAt: 0
+        });
+    } else {
+        GM_deleteValue('searchPauseState');
     }
-}
-
-/**
- * 从搜索结果中查找可点击的链接
- * @param {Element} result - 搜索结果元素
- * @returns {HTMLAnchorElement|null}
- */
-function findClickableLink(result) {
-    if (!result) return null;
-
-    // 策略1: h2 中的链接（优先直接子元素，其次嵌套）
-    for (const h2 of result.querySelectorAll('h2')) {
-        const link = h2.querySelector(':scope > a[href]') ||
-                     Array.from(h2.querySelectorAll('a[href]')).find(isValidResultLink);
-        if (link) return link;
-    }
-
-    // 策略2: 排除辅助链接后的第一个有效链接
-    const allLinks = result.querySelectorAll('a[href]');
-    for (const link of allLinks) {
-        if (!link.classList.contains('tilk') &&
-            !link.closest('.b_tpcn, .b_attribution, .b_meta') &&
-            isValidResultLink(link)) {
-            return link;
-        }
-    }
-
-    // 策略3: 任意有效链接（保底）
-    return Array.from(allLinks).find(isValidResultLink) || null;
-}
-
-/**
- * 验证链接是否为有效的搜索结果链接
- * @param {HTMLAnchorElement} link
- * @returns {boolean}
- */
-function isValidResultLink(link) {
-    if (!link || !link.href) return false;
-
-    const href = link.href;
-
-    // 必须是 http/https 协议
-    if (!href.startsWith('http://') && !href.startsWith('https://')) {
-        return false;
-    }
-
-    // 排除内部链接
-    if (href.includes('bing.com') ||
-        href.includes('msn.com') ||
-        href.includes('microsoft.com')) {
-        return false;
-    }
-
+    GM_deleteValue('pendingSearchSubmission');
     return true;
 }
 
 /**
- * 在页面中查找任意有效的外部链接（降级策略）
- * @returns {HTMLAnchorElement|null}
+ * 在组末结果页等待，截止时间跨刷新保存；最终一次搜索不再等待组间暂停。
  */
-function findAnyValidLinkOnPage() {
-    const allLinks = Array.from(document.querySelectorAll('a[href]'));
-
-    if (allLinks.length === 0) return null;
-
-    // 过滤出可见的有效外部链接
-    const validLinks = allLinks.filter(link => {
-        if (!isValidResultLink(link)) return false;
-
-        // 排除导航、页脚、侧边栏、广告等区域
-        if (link.closest('nav, footer, header, #b_header, #b_footer, .b_nav, .b_footer, .b_sideBlade, .ads, .advertisement, #b_context')) {
-            return false;
-        }
-
-        return isElementVisible(link);
+function waitForSearchPause(runGeneration) {
+    if (!isCurrentSearchRun(runGeneration)) return Promise.resolve(false);
+    const pause = GM_getValue('searchPauseState', null);
+    if (!pause) return Promise.resolve(true);
+    const currentCount = Number(GM_getValue('searchCount', 0));
+    if (pause.runGeneration !== runGeneration || pause.afterCount !== currentCount ||
+        !Number.isFinite(pause.duration) || pause.duration < 0) {
+        GM_deleteValue('searchPauseState');
+        return Promise.resolve(true);
+    }
+    if (!Number.isFinite(pause.resumeAt) || pause.resumeAt <= 0) {
+        pause.resumeAt = Date.now() + pause.duration;
+        GM_setValue('searchPauseState', pause);
+    }
+    return new Promise(resolve => {
+        let timer = null;
+        let settled = false;
+        const finish = completed => {
+            if (settled) return;
+            settled = true;
+            clearInterval(timer);
+            state.timers.delete(timer);
+            state.cancelSearchPause = null;
+            if (completed) {
+                const interval = utils.getRandomPauseInterval();
+                GM_setValue('currentPauseInterval', interval);
+                GM_setValue('nextPauseAt', currentCount + interval);
+                GM_deleteValue('searchPauseState');
+            }
+            updateStatusPanel({ pauseTimeLeft: null });
+            resolve(completed);
+        };
+        const tick = () => {
+            if (!isCurrentSearchRun(runGeneration)) return finish(false);
+            const remaining = Math.max(0, (pause.resumeAt - Date.now()) / 1000);
+            updateStatusPanel({ currentWord: '', pauseTimeLeft: remaining });
+            if (remaining === 0) finish(true);
+        };
+        state.cancelSearchPause = () => finish(false);
+        timer = utils.addTimer(setInterval(tick, 1000));
+        tick();
     });
-
-    // 如果没有可见链接，尝试任意有效链接
-    const candidates = validLinks.length > 0 ? validLinks : allLinks.filter(isValidResultLink);
-
-    if (candidates.length === 0) return null;
-
-    // 随机选择一个
-    return candidates[Math.floor(Math.random() * candidates.length)];
 }
 
 /**
- * 模拟人工操作点击链接
- * @param {HTMLAnchorElement} link - 要点击的链接元素
+ * 仅在当前搜索任务仍有效时，自动切换到一条正常搜索结果。
+ * 结果标签页独立使用随机停留时间，避免与任务页面关闭延时耦合。
  */
-function simulateHumanClick(link) {
-    try {
-        if (link.dataset.clicked === 'true') {
-            GM_log('链接已被点击，跳过重复操作');
-            return;
-        }
-        link.dataset.clicked = 'true';
+async function openSearchResult(runGeneration) {
+    if (!CONFIG.clickSearchResults || !isCurrentSearchRun(runGeneration)) return;
+    if (window.location.pathname !== '/search') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (!urlParams.has('q') || !urlParams.has(utils.getRandomStartParam())) return;
+    const targetLink = findLinkFromSearchResults();
+    if (!targetLink || typeof GM_openInTab !== 'function') return;
 
-        if (typeof GM_openInTab !== 'undefined') {
-            const newTab = GM_openInTab(link.href, {
-                active: false,
-                insert: true,
-                setParent: true
-            });
-            GM_log('已通过 GM_openInTab 打开链接');
+    const token = Array.from(crypto.getRandomValues(new Uint8Array(16)), value =>
+        value.toString(16).padStart(2, '0')).join('');
+    const key = `search_result_read_${token}`;
+    const targetUrl = new URL(targetLink.href);
+    const duration = 10000 + Math.floor(Math.random() * 20001);
+    // 给目标页面预留加载时间；计时从目标页就绪后开始。
+    const expiresAt = Date.now() + 20000 + duration;
+    GM_setValue(key, { status: 'pending', url: targetUrl.href, runGeneration, duration, expiresAt });
+    targetUrl.hash += `${targetUrl.hash ? '&' : ''}rewardsReader=${token}`;
 
-            const closeDelay = CONFIG.tasksCloseTabDelay || 1500;
-            setTimeout(() => {
-                try {
-                    if (newTab && typeof newTab.close === 'function') {
-                        newTab.close();
-                        GM_log('已通过 tab.close() 关闭搜索结果标签页');
-                    } else if (typeof GM_closeTab !== 'undefined') {
-                        GM_saveTab(newTab).then(savedTab => {
-                            if (savedTab && typeof savedTab.close === 'function') {
-                                savedTab.close();
-                                GM_log('已通过 savedTab.close() 关闭搜索结果标签页');
-                            }
-                        }).catch(() => {});
+    await new Promise(resolve => {
+        let tab = null;
+        let timer = null;
+        let settled = false;
+        const visit = { finish: () => finish(true) };
+        const finish = closeTab => {
+            if (settled) return;
+            settled = true;
+            clearInterval(timer);
+            GM_deleteValue(key);
+            state.searchResultTabs.delete(visit);
+            if (tab) {
+                tab.onclose = null;
+                if (closeTab && !tab.closed && typeof tab.close === 'function') {
+                    try { tab.close(); } catch (error) {
+                        GM_log(`关闭搜索结果标签页失败: ${error.message}`);
                     }
-                } catch (e) {
-                    GM_log(`关闭搜索结果标签页失败: ${e.message}`);
                 }
-            }, closeDelay);
-        } else {
-            const tempLink = document.createElement('a');
-            tempLink.href = link.href;
-            tempLink.target = '_blank';
-            tempLink.rel = 'noopener noreferrer';
-            tempLink.style.display = 'none';
-            document.body.appendChild(tempLink);
-            tempLink.click();
-            document.body.removeChild(tempLink);
-            GM_log('已通过临时链接打开（GM_openInTab 不可用）');
+            }
+            resolve();
+        };
+        try {
+            tab = GM_openInTab(targetUrl.href, { active: true, insert: true, setParent: true });
+            if (!tab || typeof tab.close !== 'function') {
+                GM_log('未获得可管理的搜索结果标签页句柄');
+                finish(false);
+                return;
+            }
+            state.searchResultTabs.add(visit);
+            tab.onclose = () => finish(false);
+            GM_log(`已转到搜索结果，加载后滚动浏览约 ${Math.round(duration / 1000)} 秒`);
+            // 单独管理，清理搜索倒计时时不会中断标签页收尾。
+            timer = setInterval(() => {
+                const job = GM_getValue(key, null);
+                if (!isCurrentSearchRun(runGeneration) || !CONFIG.clickSearchResults ||
+                    tab.closed || !job || job.status === 'finished' || Date.now() >= expiresAt) {
+                    if (job?.status === 'pending' && Date.now() >= expiresAt) {
+                        GM_log('结果页未能启动滚动浏览，超时关闭后继续任务');
+                    }
+                    finish(true);
+                }
+            }, 500);
+        } catch (error) {
+            GM_log(`自动打开搜索结果失败: ${error.message}`);
+            finish(true);
         }
+    });
+}
 
-    } catch (error) {
-        GM_log(`点击出错: ${error.message}`);
-        console.error(error);
+/**
+ * 关闭当前页面打开的结果页并结束等待；不会操作用户原有标签页。
+ */
+function closeOpenedSearchResultTabs() {
+    [...state.searchResultTabs].forEach(visit => visit.finish());
+}
+
+/**
+ * 从正常搜索结果标题中选取第一个有效链接；没有结果时不从整页链接兜底。
+ * @returns {HTMLAnchorElement|null}
+ */
+function findLinkFromSearchResults() {
+    const links = document.querySelectorAll('#b_results li.b_algo h2 a[href]');
+    for (const link of links) {
+        if (!link.closest('.b_ad, .ads, .b_sponsored') &&
+            link.getClientRects().length > 0 && isValidResultLink(link)) {
+            return link;
+        }
+    }
+    return null;
+}
+
+/**
+ * 验证链接是否为外部 http(s) 搜索结果链接。
+ * @param {HTMLAnchorElement} link
+ * @returns {boolean}
+ */
+function isValidResultLink(link) {
+    if (!link?.href) return false;
+    try {
+        const url = new URL(link.href);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+        const hostname = url.hostname.toLowerCase().replace(/\.$/, '');
+        return !['bing.com', 'msn.com', 'microsoft.com'].some(domain =>
+            hostname === domain || hostname.endsWith(`.${domain}`));
+    } catch {
+        return false;
     }
 }
 
@@ -5703,6 +5725,7 @@ function findIncompleteDashboardTasksLegacy(dailySetSection) {
 async function checkAndStartTask() {
     // 使用每日生成的启动参数（earn/dashboard/搜索 保持一致）
     const startParam = utils.getRandomStartParam();
+    const runGeneration = Number(GM_getValue('searchRunGeneration', 0));
     const urlParams = new URLSearchParams(window.location.search);
 
     // 如果是 rewards.bing.com/earn 页面，执行日常任务点击（开关关闭时不执行）
@@ -5729,9 +5752,12 @@ async function checkAndStartTask() {
         return;
     }
 
-    // 搜索页面的处理逻辑
-    // 检查是否有当天的启动参数标记
-    const hasStartParam = urlParams.has(startParam);
+    // 只有表单实际进入匹配的结果页，才确认搜索次数和组末暂停。
+    const submittedSearch = settlePendingSearch(runGeneration, startParam, urlParams);
+    if (submittedSearch === null) return;
+
+    // 搜索页面的处理逻辑；部分 Bing 表单可能不保留自定义隐藏字段。
+    const hasStartParam = urlParams.has(startParam) || submittedSearch;
 
     console.log(`检查并启动任务: ${startParam}`);
 
@@ -5746,8 +5772,7 @@ async function checkAndStartTask() {
         await AppTaskRunner.runCheckInFlow();
 
         // 有启动参数，准备执行搜索任务
-        setTimeout(executeSearch, 2000);
-        randomScrollAfterPageLoad();
+        utils.addTimer(setTimeout(() => executeSearch(runGeneration), 2000));
         console.log(`启动任务: ${startParam}`);
     } else {
         // createStatusPanel();
@@ -5756,6 +5781,13 @@ async function checkAndStartTask() {
 
 // 注册菜单命令
 GM_registerMenuCommand('🚀 开始任务', () => {
+    GM_setValue('searchRunGeneration', Number(GM_getValue('searchRunGeneration', 0)) + 1);
+    state.cancelSearchPause?.();
+    closeOpenedSearchResultTabs();
+    utils.clearAllTimers();
+    state.isRunning = false;
+    GM_deleteValue('searchPauseState');
+    GM_deleteValue('pendingSearchSubmission');
     GM_setValue('searchCount', 0);
     GM_deleteValue('searchTerminatedDate');
     resetPanelStatus();
@@ -5791,14 +5823,19 @@ GM_registerMenuCommand('🚀 开始任务', () => {
 });
 
 GM_registerMenuCommand('⏹️ 终止任务', () => {
+    GM_setValue('searchRunGeneration', Number(GM_getValue('searchRunGeneration', 0)) + 1);
     const taskStatus = getTaskStatus();
     const counterKey = 'searchCount';
     GM_setValue(counterKey, taskStatus.maxCount);
     GM_setValue('searchTerminatedDate', utils.getTodayStr());
+    state.cancelSearchPause?.();
+    GM_deleteValue('searchPauseState');
+    GM_deleteValue('pendingSearchSubmission');
     // 同时清除当前暂停间隔值
     GM_setValue('currentPauseInterval', null);
     GM_setValue('nextPauseAt', 0);
     utils.clearAllTimers();
+    closeOpenedSearchResultTabs();
     state.isRunning = false;
     resetPanelStatus();
     updateStatusPanel();
@@ -5814,13 +5851,20 @@ GM_registerMenuCommand('📊 查看/隐藏面板', () => {
 });
 
 GM_registerMenuCommand('⚙️ 配置脚本参数', () => {
-    alert('请配置以下参数：\n\n1. searchFormParam: 登录Bing后手动搜索几次，从地址栏获取实际的form参数值\n2. minSearches / maxSearches: 设置每次任务的随机搜索次数区间\n3. 其他高级参数可根据需要调整\n\n配置完成后刷新页面开始使用。');
+    alert('请配置以下参数：\n\n1. 执行地区：决定搜索 URL 使用的地区和语言\n2. minSearches / maxSearches: 设置每次任务的随机搜索次数区间\n3. 其他高级参数可根据需要调整\n\n配置完成后刷新页面开始使用。');
     window.open('https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/quickstart/', '_blank');
 });
 
 GM_registerMenuCommand('👨‍💻 关于作者', () => {
     alert('作者：Brian\n版本：' + GM_info.script.version + '\n\n这是一个自动化完成微软必应每日搜索任务的脚本，帮助您轻松积累奖励积分。\n\n如果您觉得这个脚本有用，欢迎给作者点个Star！');
     window.open('https://idbb98.github.io/microsoft-bing-rewards-daily-task-script/', '_blank');
+});
+
+window.addEventListener('pagehide', () => {
+    state.isRunning = false;
+    state.cancelSearchPause?.();
+    closeOpenedSearchResultTabs();
+    utils.clearAllTimers();
 });
 
 if (AppAuth.isAuthLandingPage()) {
@@ -5834,3 +5878,4 @@ if (AppAuth.isAuthLandingPage()) {
         checkAndStartTask();
     }
 }
+})();
