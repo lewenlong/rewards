@@ -26,8 +26,8 @@
 // @grant        GM_openInTab
 // @grant        GM_closeTab
 // @grant        GM_deleteValue
-// @downloadURL  https://raw.githubusercontent.com/lewenlong/rewards/main/auto.user.js
-// @updateURL    https://raw.githubusercontent.com/lewenlong/rewards/main/auto.user.js
+// @downloadURL  https://raw.githubusercontent.com/lewenlong/rewards/main/auto1.user.js
+// @updateURL    https://raw.githubusercontent.com/lewenlong/rewards/main/auto1.user.js
 // ==/UserScript==
 
 'use strict';
