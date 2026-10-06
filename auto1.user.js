@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.10.6.2
+// @version      26.10.6.3
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*/*
@@ -866,7 +866,7 @@ const AppTaskRunner = {
 
     /**
      * APP 签到流程入口（搜索开始前执行）：授权校验 → 签到 → 更新面板
-     * 资讯阅读不在此处执行，改为每次搜索前随机穿插上报（见 runRandomReads）
+     * 资讯阅读在搜索组间暂停期间执行（见 runReadsDuringPause）
      */
     async runCheckInFlow() {
         if (!CONFIG.appCheckInEnabled) return;
@@ -951,12 +951,12 @@ const AppTaskRunner = {
     },
 
     /**
-     * 搜索前随机阅读：随机上报 0-3 篇（受剩余缺口与每日上报上限约束）
-     * 失败不消耗重试预算（预算仅由兜底流程消耗，避免每日约20次调用放大耗尽）
-     * 进度优先从当日 GM 缓存恢复，未缓存时实时查询；当日已完成直接跳过
+     * 组间暂停期间上报剩余阅读篇数；到点后不再发起新上报。
+     * 失败不消耗重试预算（预算仅由搜索结束后的兜底流程消耗）。
      */
-    async runRandomReads() {
-        if (!CONFIG.appReadEnabled) return;
+    async runReadsDuringPause(runGeneration, resumeAt) {
+        if (!CONFIG.appReadEnabled || !isCurrentSearchRun(runGeneration) || Date.now() >= resumeAt ||
+            state.appTasks.readRunning) return;
         const today = this.getTodayNum();
 
         // 当日已完成：直接跳过（进度二次校验由搜索完成后的兜底流程负责）
@@ -964,20 +964,20 @@ const AppTaskRunner = {
         // 重试预算已耗尽（由兜底流程消耗），当日不再尝试
         if (!this.retryLeft('read')) return;
         // 本地无令牌凭据（从未授权/凭据已清除）
-        if (!state.appToken && !GM_getValue('appRefreshToken', '')) return;
+        if (!state.appToken && !GM_getValue('appRefreshToken', '') && !GM_getValue('appAccessToken', '')) return;
 
         createStatusPanel();
         state.appTasks.readRunning = true;
         updateStatusPanel();
 
         try {
-            if (!(await AppAuth.ensureToken())) return;
+            if (!(await AppAuth.ensureToken()) || !isCurrentSearchRun(runGeneration) || Date.now() >= resumeAt) return;
 
             // 当日进度未同步：优先恢复缓存，未缓存再实时查询真实进度
             if (!state.appTasks.readProgressSynced && !this.restoreCachedReadProgress()) {
                 const progress = await this.syncReadProgress();
                 if (!progress) {
-                    GM_log('APP阅读进度获取失败，跳过本次随机阅读');
+                    GM_log('APP阅读进度获取失败，跳过当前组间暂停');
                     return;
                 }
             }
@@ -988,15 +988,8 @@ const AppTaskRunner = {
                 this.completeReadDailyTargetIfReached();
                 return;
             }
-            const maxBatch = limitLeft;
-            if (maxBatch <= 0) return;
-
-            // 随机执行 0-3 次 APP 阅读上报
-            const batch = Math.min(maxBatch, Math.floor(Math.random() * 4));
-            if (batch <= 0) return;
-
-            GM_log(`APP阅读进度 ${state.appTasks.readCurrent}/${state.appTasks.readTotal}，搜索前随机上报 ${batch} 篇`);
-            await this.reportReadBatch(batch, false);
+            GM_log(`APP阅读进度 ${state.appTasks.readCurrent}/${state.appTasks.readTotal}，组间暂停期间最多上报 ${limitLeft} 篇`);
+            await this.reportReadBatch(limitLeft, false, { runGeneration, stopAt: resumeAt });
         } finally {
             state.appTasks.readRunning = false;
             updateStatusPanel();
@@ -1048,12 +1041,17 @@ const AppTaskRunner = {
     /**
      * 批量阅读上报：逐篇上报 + 篇间随机间隔，全部完成后落盘日期戳
      * @param {number} count 本次上报篇数
-     * @param {boolean} countRetry 失败时是否消耗重试预算（随机阅读不消耗，兜底补跑消耗）
+     * @param {boolean} countRetry 失败时是否消耗重试预算（暂停期间不消耗，兜底补跑消耗）
+     * @param {{runGeneration?: number, stopAt?: number}} options 暂停期间的任务代数与截止时间
      */
-    async reportReadBatch(count, countRetry = false) {
+    async reportReadBatch(count, countRetry = false, options = {}) {
         const today = this.getTodayNum();
+        const stopAt = Number.isFinite(options.stopAt) ? options.stopAt : Infinity;
+        const canContinue = () => Date.now() < stopAt &&
+            (options.runGeneration === undefined || isCurrentSearchRun(options.runGeneration));
 
         for (let i = 0; i < count; i++) {
+            if (!canContinue()) break;
             const result = await AppApi.reportArticleRead();
             if (!result) {
                 GM_log(`APP阅读第 ${i + 1} 篇上报失败，中止本次循环`);
@@ -1071,8 +1069,10 @@ const AppTaskRunner = {
             updateStatusPanel();
             if (this.completeReadDailyTargetIfReached()) break;
             // 篇间随机间隔，模拟真实阅读行为
-            if (i < count - 1) {
-                await new Promise(resolve => setTimeout(resolve, 3000 + Math.floor(Math.random() * 5000)));
+            if (i < count - 1 && canContinue()) {
+                const delay = 3000 + Math.floor(Math.random() * 5000);
+                const remaining = stopAt - Date.now();
+                await new Promise(resolve => setTimeout(resolve, Math.min(delay, remaining)));
             }
         }
 
@@ -2501,7 +2501,7 @@ function showSettingsDialog(theme) {
                                         APP资讯阅读
                                     </div>
                                     <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;background:${theme['--panel-bg']};padding:12px 14px;border-radius:8px;border:1px solid ${theme['--panel-border']};">
-                                        搜索执行前随机上报 0-3 篇资讯，完成每日阅读积分任务（受每日上限约束）。
+                                        搜索组间暂停期间上报未完成的资讯篇数；暂停到点后不再发起新阅读，搜索结束后仍会有限次补跑。
                                     </div>
                                 </div>
                             </label>
@@ -4696,7 +4696,7 @@ async function executeSearch(runGeneration) {
         return;
     }
 
-    if (!await waitForSearchPause(runGeneration)) return;
+    if (!await waitForSearchPauseWithReads(runGeneration)) return;
 
     // 更新标题
     const title = document.querySelector('title');
@@ -4739,12 +4739,7 @@ async function executeSearch(runGeneration) {
     utils.addTimer(setTimeout(() => {
         if (!isCurrentSearchRun(runGeneration)) return;
         utils.clearAllTimers();
-        // 搜索执行前随机完成 0-3 次 APP 阅读上报（阅读开关开启且当日未完成时），完成后继续搜索
-        AppTaskRunner.runRandomReads().finally(() => {
-            if (isCurrentSearchRun(runGeneration)) {
-                performSearch(processedSearchWord, taskStatus, runGeneration);
-            }
-        });
+        performSearch(processedSearchWord, taskStatus, runGeneration);
     }, delay));
 
     // 添加一个定期更新面板的定时器（每秒更新一次）
@@ -4902,6 +4897,23 @@ function waitForSearchPause(runGeneration) {
         timer = utils.addTimer(setInterval(tick, 1000));
         tick();
     });
+}
+
+/**
+ * 阅读与组间暂停倒计时并行；到点后等待当前阅读请求结束，再继续搜索。
+ * 暂停被终止时不等待阅读收尾，但阅读流程不会再发起新请求。
+ */
+async function waitForSearchPauseWithReads(runGeneration) {
+    const pauseFinished = waitForSearchPause(runGeneration);
+    const pause = GM_getValue('searchPauseState', null);
+    if (!pause || pause.runGeneration !== runGeneration || pause.resumeAt <= Date.now()) {
+        return pauseFinished;
+    }
+    const readsFinished = AppTaskRunner.runReadsDuringPause(runGeneration, pause.resumeAt)
+        .catch(e => GM_log(`APP阅读暂停期间异常: ${e.message}`));
+    if (!await pauseFinished) return false;
+    await readsFinished;
+    return isCurrentSearchRun(runGeneration);
 }
 
 /**
@@ -5834,7 +5846,7 @@ async function checkAndStartTask() {
             await checkAndExecuteTasksOnPage('earn');
         }
 
-        // APP 端签到在搜索开始前执行；资讯阅读改为每次搜索执行前随机穿插上报（见 executeSearch）
+        // APP 端签到在搜索开始前执行；资讯阅读在搜索组间暂停期间执行。
         await AppTaskRunner.runCheckInFlow();
 
         // 有启动参数，准备执行搜索任务
