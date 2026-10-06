@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.10.5.1
+// @version      26.10.6.1
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*/*
@@ -531,6 +531,7 @@ const AppAuth = {
                 GM_log('APP任务令牌已超7天，提前续期');
                 state.appToken = '';
             } else {
+                state.appTasks.authRequired = false;
                 return true;
             }
         }
@@ -641,7 +642,7 @@ const AppApi = {
 
     /**
      * 每日签到上报（type=103，无 offerid）
-     * 返回 {points, duplicate}；isDuplicate/空 activity 视为当日已签（幂等成功）
+     * 返回 {points, duplicate}；仅有有效活动记录或明确的重复标记才视为已签
      */
     async reportCheckIn() {
         const region = this.getRegion();
@@ -665,10 +666,10 @@ const AppApi = {
             if (res === null) return null;
 
             const result = this.parseActivityResponse(res);
-            if (result) {
-                // 有积分为成功；无积分（含 isDuplicate/空 activity）按当日已签的幂等成功处理
-                return { points: result.points, duplicate: result.duplicate || result.points === 0 };
+            if (result && (result.hasActivityRecord || result.duplicate)) {
+                return { points: result.points, duplicate: result.duplicate };
             }
+            GM_log('APP签到响应未确认成功：缺少有效活动记录和重复标记');
             return null;
         } catch (e) {
             GM_log(`APP签到请求失败: ${e.message}`);
@@ -742,7 +743,9 @@ const AppTaskRunner = {
     // 同步当日签到完成状态到内存（供面板渲染）
     syncCheckInState() {
         const today = this.getTodayNum();
-        state.appTasks.checkInDone = GM_getValue('appCheckInDate', 0) === today;
+        // 旧版本可能将空活动响应误记为已签到，必须由新版成功响应重新确认。
+        state.appTasks.checkInDone = GM_getValue('appCheckInDate', 0) === today &&
+            GM_getValue('appCheckInVerifiedDate', 0) === today;
         if (state.appTasks.checkInDone) {
             state.appTasks.checkInPoints = GM_getValue('appCheckInPoints', 0);
         }
@@ -755,13 +758,16 @@ const AppTaskRunner = {
     // 重试计数跨日清零（保证每日重试额度与完成兜底可靠生效）
     resetRetryCountersIfNewDay() {
         const today = this.getTodayNum();
-        if (GM_getValue('appTaskRetryDate', 0) !== today) {
+        // 新版签到校验收紧后，给旧版误判过的当日任务一次新的重试额度。
+        if (GM_getValue('appTaskRetryDate', 0) !== today || GM_getValue('appTaskRetrySchema', 0) !== 2) {
             GM_setValue('appTaskRetryCounters', {});
             GM_setValue('appTaskRetryDate', today);
+            GM_setValue('appTaskRetrySchema', 2);
         }
     },
 
     bumpRetry(taskName) {
+        this.resetRetryCountersIfNewDay();
         const counters = this.getRetryCounters();
         counters[taskName] = (counters[taskName] || 0) + 1;
         GM_setValue('appTaskRetryCounters', counters);
@@ -769,15 +775,37 @@ const AppTaskRunner = {
 
     // 任务重试次数是否未用尽（每任务每日最多2次）
     retryLeft(taskName) {
+        if (GM_getValue('appTaskRetryDate', 0) !== this.getTodayNum() ||
+            GM_getValue('appTaskRetrySchema', 0) !== 2) return true;
         return (this.getRetryCounters()[taskName] || 0) < 2;
     },
 
     // APP 任务是否已全部完成（开关关闭的任务视为完成）
     isAllDone() {
         const today = this.getTodayNum();
-        const checkInDone = !CONFIG.appCheckInEnabled || GM_getValue('appCheckInDate', 0) === today;
+        const checkInDone = !CONFIG.appCheckInEnabled ||
+            (GM_getValue('appCheckInDate', 0) === today && GM_getValue('appCheckInVerifiedDate', 0) === today);
         const readDone = !CONFIG.appReadEnabled || GM_getValue('appReadDate', 0) === today;
         return checkInDone && readDone;
+    },
+
+    // 搜索结束后只补跑有限轮；失败时保持 APP 待完成，不无限请求。
+    async finishPendingAfterSearch(runGeneration) {
+        for (let attempt = 0; attempt < 2 && !this.isAllDone(); attempt++) {
+            if (!isCurrentSearchRun(runGeneration)) return;
+            try {
+                await this.runAll();
+            } catch (e) {
+                GM_log(`APP任务补跑异常: ${e.message}`);
+                return;
+            }
+            if (!isCurrentSearchRun(runGeneration) || this.isAllDone() || state.appTasks.authRequired) return;
+            const today = this.getTodayNum();
+            const checkInPending = CONFIG.appCheckInEnabled && !state.appTasks.checkInDone && this.retryLeft('checkIn');
+            const readPending = CONFIG.appReadEnabled && GM_getValue('appReadDate', 0) !== today && this.retryLeft('read');
+            if (!checkInPending && !readPending) return;
+            if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 15000));
+        }
     },
 
     // 当日 APP 阅读已上报篇数（跨页面跳转持久化，受每日上限约束）
@@ -909,6 +937,7 @@ const AppTaskRunner = {
         if (result) {
             const points = result.points || 0;
             GM_setValue('appCheckInDate', today);
+            GM_setValue('appCheckInVerifiedDate', today);
             GM_setValue('appCheckInPoints', points);
             state.appTasks.checkInDone = true;
             state.appTasks.checkInPoints = points;
@@ -3955,6 +3984,24 @@ function isTaskTerminatedToday() {
     return GM_getValue('searchTerminatedDate', '') === utils.getTodayStr();
 }
 
+function getAppPendingNotice() {
+    const today = AppTaskRunner.getTodayNum();
+    const pendingCheckIn = CONFIG.appCheckInEnabled &&
+        (GM_getValue('appCheckInDate', 0) !== today || GM_getValue('appCheckInVerifiedDate', 0) !== today);
+    const pendingRead = CONFIG.appReadEnabled && GM_getValue('appReadDate', 0) !== today;
+    const tasks = [pendingCheckIn ? '签到' : '', pendingRead ? '阅读' : ''].filter(Boolean).join('、');
+    if (state.appTasks.authRequired || (!state.appToken && !GM_getValue('appRefreshToken', ''))) {
+        return `搜索已完成，APP${tasks}待授权；请在设置中重新授权`;
+    }
+    if ((pendingCheckIn && !AppTaskRunner.retryLeft('checkIn')) ||
+        (pendingRead && !AppTaskRunner.retryLeft('read'))) {
+        return `搜索已完成，APP${tasks}未完成；今日自动重试次数已用尽，请检查日志`;
+    }
+    return state.isRunning
+        ? `搜索已完成，正在补跑 APP${tasks}`
+        : `搜索已完成，APP${tasks}未完成；请检查日志`;
+}
+
 function isCurrentSearchRun(runGeneration) {
     return state.isRunning &&
         !isTaskTerminatedToday() &&
@@ -3976,12 +4023,14 @@ function stopSearchWithError(message) {
 function derivePanelStatus(taskStatus) {
     const remainingTime = utils.getAccurateRemainingTime();
     const terminated = taskStatus.isCompleted && isTaskTerminatedToday();
+    const appPending = taskStatus.isCompleted && !terminated && !AppTaskRunner.isAllDone();
     return {
         currentWord: state.panel.currentWord,
         pauseTimeLeft: state.panel.pauseTimeLeft,
         remainingTime,
         terminated,
-        completed: taskStatus.isCompleted && !terminated,
+        appPending,
+        completed: taskStatus.isCompleted && !terminated && !appPending,
         running: state.isRunning && !taskStatus.isCompleted
     };
 }
@@ -4030,8 +4079,9 @@ function updateStatusPanel(data = {}) {
         if (state.isPanelCollapsed) {
             // 面板收缩时显示倒计时
             if (taskStatus.isCompleted) {
-                countdownElement.textContent = panelStatus.terminated ? '⏹️ 已终止' : '✅ 已完成';
-                countdownElement.style.color = panelStatus.terminated
+                countdownElement.textContent = panelStatus.terminated ? '⏹️ 已终止'
+                    : panelStatus.appPending ? '⏳ APP待完成' : '✅ 已完成';
+                countdownElement.style.color = panelStatus.terminated || panelStatus.appPending
                     ? 'var(--panel-warning-text,#8a6900)'
                     : 'var(--panel-success-text,#107c10)';
             } else if (pauseTimeLeft !== null && pauseTimeLeft > 0) {
@@ -4092,6 +4142,7 @@ function updateStatusPanel(data = {}) {
 
             ${panelStatus.completed ? buildPanelNotice('✅', '今日任务已完成', 'success') : ''}
             ${panelStatus.terminated ? buildPanelNotice('⏹️', '今日任务已终止，可从菜单重新开始', 'warning') : ''}
+            ${panelStatus.appPending ? buildPanelNotice('⚠️', getAppPendingNotice(), 'warning') : ''}
 
             ${pauseTimeLeft !== null ? `
                 <div style="padding:12px;background:var(--panel-warning-bg,#fff8e6);border-radius:8px;border-left:3px solid var(--panel-warning-border,#ffb900);display:flex;align-items:center;gap:8px;">
@@ -4605,16 +4656,19 @@ async function executeSearch(runGeneration) {
 
     if (taskStatus.isCompleted) {
         GM_deleteValue('searchPauseState');
-        // 兜底：搜索完成后若 APP 任务未全部完成，补跑确保签到与阅读完成
-        if ((CONFIG.appCheckInEnabled || CONFIG.appReadEnabled) && !AppTaskRunner.isAllDone()) {
-            await AppTaskRunner.runAll();
+        // 搜索完成不等于 APP 任务完成；有限次补跑后分别报告状态。
+        if (!AppTaskRunner.isAllDone()) {
+            await AppTaskRunner.finishPendingAfterSearch(runGeneration);
         }
         if (!isCurrentSearchRun(runGeneration)) return;
         closeOpenedSearchResultTabs();
         resetPanelStatus();
-        updateStatusPanel();
-        GM_notification({ text: "Bing Rewards 任务已完成", title: "任务完成", timeout: 3000 });
+        const allDone = AppTaskRunner.isAllDone();
         state.isRunning = false;
+        updateStatusPanel();
+        GM_notification(allDone
+            ? { text: 'Bing Rewards 任务已完成', title: '任务完成', timeout: 3000 }
+            : { text: getAppPendingNotice(), title: 'APP任务未完成', timeout: 5000 });
         return;
     }
 
