@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.9.30.11
+// @version      26.10.5.1
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*/*
@@ -612,10 +612,16 @@ const AppApi = {
     parseActivityResponse(res) {
         const data = utils.safeJsonParse(res, null);
         if (!data || !data.response) return null;
+        const activity = data.response.activity;
+        const hasActivityRecord = Boolean(activity && typeof activity === 'object' &&
+            Object.prototype.hasOwnProperty.call(activity, 'p') &&
+            activity.p !== null && activity.p !== '' &&
+            Number.isFinite(Number(activity.p)) && Number(activity.p) >= 0);
         return {
-            points: Number(data.response.activity?.p || 0),
+            points: hasActivityRecord ? Number(activity.p) : 0,
             duplicate: Boolean(data.response.isDuplicate),
-            balance: Number(data.response.balance || 0)
+            balance: Number(data.response.balance || 0),
+            hasActivityRecord
         };
     },
 
@@ -672,7 +678,8 @@ const AppApi = {
 
     /**
      * 单篇资讯阅读上报（type=101，attributes 携带阅读活动标识）
-     * 返回 {points, duplicate}；失败返回 null
+     * 返回 {points, duplicate, hasActivityRecord}；失败返回 null。
+     * 积分已达上限时，明确的零积分活动记录仍表示本次阅读已被接受。
      */
     async reportArticleRead() {
         const region = this.getRegion();
@@ -693,9 +700,12 @@ const AppApi = {
             if (res === null) return null;
 
             const result = this.parseActivityResponse(res);
-            if (result && (result.points > 0 || result.duplicate)) {
-                return result;
+            if (!result) {
+                GM_log('APP阅读响应状态：缺少 response，未计入阅读篇数');
+                return null;
             }
+            GM_log(`APP阅读响应状态：积分=${result.points}，重复=${result.duplicate}，有活动记录=${result.hasActivityRecord}`);
+            if (result.duplicate || result.hasActivityRecord) return result;
             return null;
         } catch (e) {
             GM_log(`APP阅读请求失败: ${e.message}`);
@@ -1025,7 +1035,8 @@ const AppTaskRunner = {
                 GM_log(`APP阅读第 ${i + 1} 篇为重复上报，本次不计入进度并结束当前批次`);
                 return;
             }
-            state.appTasks.readCurrent++;
+            // 服务端任务进度可能是积分；零积分阅读只增加本地已上报篇数。
+            if (result.points > 0) state.appTasks.readCurrent++;
             this.bumpReadReported();
             GM_setValue('appReadProgressCache', { date: today, current: state.appTasks.readCurrent, total: state.appTasks.readTotal });
             updateStatusPanel();
