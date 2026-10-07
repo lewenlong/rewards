@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.10.6.3
+// @version      26.10.7.1
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*/*
@@ -951,7 +951,7 @@ const AppTaskRunner = {
     },
 
     /**
-     * 组间暂停期间上报剩余阅读篇数；到点后不再发起新上报。
+     * 每次组间暂停随机上报 1-5 篇，不超过当天剩余目标；到点后不再发起新上报。
      * 失败不消耗重试预算（预算仅由搜索结束后的兜底流程消耗）。
      */
     async runReadsDuringPause(runGeneration, resumeAt) {
@@ -988,8 +988,9 @@ const AppTaskRunner = {
                 this.completeReadDailyTargetIfReached();
                 return;
             }
-            GM_log(`APP阅读进度 ${state.appTasks.readCurrent}/${state.appTasks.readTotal}，组间暂停期间最多上报 ${limitLeft} 篇`);
-            await this.reportReadBatch(limitLeft, false, { runGeneration, stopAt: resumeAt });
+            const batch = Math.min(limitLeft, 1 + Math.floor(Math.random() * 5));
+            GM_log(`APP阅读进度 ${state.appTasks.readCurrent}/${state.appTasks.readTotal}，组间暂停本次计划上报 ${batch} 篇（剩余 ${limitLeft} 篇）`);
+            await this.reportReadBatch(batch, false, { runGeneration, stopAt: resumeAt });
         } finally {
             state.appTasks.readRunning = false;
             updateStatusPanel();
@@ -2501,7 +2502,7 @@ function showSettingsDialog(theme) {
                                         APP资讯阅读
                                     </div>
                                     <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;background:${theme['--panel-bg']};padding:12px 14px;border-radius:8px;border:1px solid ${theme['--panel-border']};">
-                                        搜索组间暂停期间上报未完成的资讯篇数；暂停到点后不再发起新阅读，搜索结束后仍会有限次补跑。
+                                        每次搜索组间暂停随机上报 1-5 篇资讯（不超过当天剩余目标）；搜索结束后仍会补齐剩余篇数。
                                     </div>
                                 </div>
                             </label>

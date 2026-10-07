@@ -15,10 +15,12 @@ function functionSource(name) {
     return source.slice(match.index, source.indexOf('\n}\n', match.index) + 3);
 }
 
-function readingHarness(target = 4) {
+function readingHarness(target = 4, random = 0.99) {
     const today = 20261006;
     let now = 1000;
     let reports = 0;
+    const controlledMath = Object.create(Math);
+    controlledMath.random = () => random;
     const storage = new Map([
         ['appReadLimitDate', today], ['appReadDailyTarget', target],
         ['appReadReportedDate', today], ['appReadReportedCount', 0]
@@ -29,12 +31,15 @@ function readingHarness(target = 4) {
     };
     const context = vm.createContext({
         Date: class extends Date { static now() { return now; } },
-        Math,
+        Math: controlledMath,
         setTimeout: callback => callback(),
         CONFIG: { appReadEnabled: true, appReadDailyLimitMin: target, appReadDailyLimitMax: target },
         state,
         AppAuth: { ensureToken: async () => true },
-        AppApi: { reportArticleRead: async () => { reports++; return { points: 0, duplicate: false }; } },
+        AppApi: {
+            queryReadProgress: async () => ({ current: 30, total: 30 }),
+            reportArticleRead: async () => { reports++; return { points: 0, duplicate: false }; }
+        },
         GM_getValue: (key, fallback) => storage.has(key) ? storage.get(key) : fallback,
         GM_setValue: (key, value) => storage.set(key, value),
         GM_log() {}, createStatusPanel() {}, updateStatusPanel() {},
@@ -45,13 +50,33 @@ function readingHarness(target = 4) {
     return { context, storage, state, today, setNow: value => { now = value; }, getReports: () => reports };
 }
 
-test('auto1 在组间暂停期间上报当天剩余阅读篇数', async () => {
+test('随机批次不超过当天剩余阅读目标', async () => {
     const h = readingHarness(4);
     await h.context.AppTaskRunner.runReadsDuringPause(1, 60000);
     assert.equal(h.getReports(), 4);
     assert.equal(h.storage.get('appReadReportedCount'), 4);
     assert.equal(h.storage.get('appReadDate'), h.today);
     assert.equal(h.state.appTasks.readRunning, false);
+});
+
+test('每次暂停随机上报 1-5 篇，跨暂停累积而不提前补齐', async () => {
+    const one = readingHarness(14, 0);
+    await one.context.AppTaskRunner.runReadsDuringPause(1, 60000);
+    assert.equal(one.getReports(), 1);
+
+    const five = readingHarness(14, 0.99);
+    await five.context.AppTaskRunner.runReadsDuringPause(1, 60000);
+    assert.equal(five.getReports(), 5);
+    await five.context.AppTaskRunner.runReadsDuringPause(1, 60000);
+    assert.equal(five.getReports(), 10);
+    assert.equal(five.storage.has('appReadDate'), false);
+});
+
+test('搜索结束后的兜底仍在一次调用中补齐全部剩余篇数', async () => {
+    const h = readingHarness(14, 0);
+    await h.context.AppTaskRunner.runArticleRead();
+    assert.equal(h.getReports(), 14);
+    assert.equal(h.storage.get('appReadDate'), h.today);
 });
 
 test('暂停截止时当前阅读可记账，但不再发起下一篇', async () => {
