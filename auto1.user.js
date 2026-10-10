@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.10.10.1
+// @version      26.10.10.2
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*/*
@@ -182,14 +182,6 @@ const CONFIG_SCHEMA = {
     minSearches: { key: 'customMinSearches', default: 15 },
     // 每次任务随机搜索次数的上限
     maxSearches: { key: 'customMaxSearches', default: 25 },
-    // 是否随机加词，如：人工智能发展  -->  人工1智能发z展
-    randomAddSearchWords: { key: 'customRandomAddSearchWords', default: false },
-    // 随机加词因子，控制加词的概率（0-1之间的小数），默认为0.3即30%概率添加字符
-    randomAddSearchWordsFactor: { key: 'customRandomAddSearchWordsFactor', default: 0.3 },
-    // 是否随机截词，如：人工1智能发z展  --> 人工1智
-    randomCutSearchWords: { key: 'customRandomCutSearchWords', default: false },
-    // 随机截词因子，控制截取的概率（0-1之间的小数），默认为0.2即20%概率截取字符
-    randomCutSearchWordsFactor: { key: 'customRandomCutSearchWordsFactor', default: 0.2 },
     // 是否前台打开正常搜索结果并沿正文滚动浏览
     clickSearchResults: { key: 'customClickSearchResults', default: false },
     // 暂停间隔范围：每执行多少次搜索后暂停一次的区间
@@ -1137,55 +1129,6 @@ const utils = {
         return timer;
     },
 
-    // 随机对搜索词加词，例如：人工智能发展  -->  人工1智能发z展
-    addRandomCharsToSearchWord(word) {
-        if (!CONFIG.randomAddSearchWords || !word || Math.random() > CONFIG.randomAddSearchWordsFactor) return word;
-
-        // 控制添加字符的数量，避免过度添加导致词无意义
-        const maxAdditions = Math.min(3, Math.floor(word.length / 3)); // 最多添加原词长度1/3的随机字符
-        let result = word;
-
-        for (let i = 0; i < Math.floor(Math.random() * (maxAdditions + 1)); i++) {
-            // 随机选择插入位置（避开开头和结尾）
-            const insertPos = Math.floor(Math.random() * (result.length - 1)) + 1;
-            // 随机选择要插入的字符
-            const randomChar = String.fromCharCode(
-                Math.random() > 0.5 ?
-                Math.floor(Math.random() * 10) + 48 : // 数字 0-9
-                Math.floor(Math.random() * 26) + 97   // 小写字母 a-z
-            );
-
-            result = result.slice(0, insertPos) + randomChar + result.slice(insertPos);
-        }
-
-        return result;
-    },
-
-    // 随机对搜索词进行截取，例如：人工1智能发z展  --> 人工1智
-    cutSearchWordRandomly(word) {
-        if (!CONFIG.randomCutSearchWords || !word || Math.random() > CONFIG.randomCutSearchWordsFactor) return word;
-
-        // 控制截取长度，保留至少一半的字符
-        const minLength = Math.max(2, Math.ceil(word.length / 2)); // 至少保留2个字符或一半字符
-        const maxLength = word.length; // 最大不超过原词长度
-
-        if (minLength >= maxLength) return word;
-
-        // 随机选择截取长度
-        const cutLength = Math.floor(Math.random() * (maxLength - minLength)) + minLength;
-
-        return word.substring(0, cutLength);
-    },
-
-    // 依次应用加词和截取
-    processSearchWord(word) {
-        // 先加词
-        let processedWord = this.addRandomCharsToSearchWord(word);
-        // 再截取
-        processedWord = this.cutSearchWordRandomly(processedWord);
-        return processedWord;
-    },
-
     // 生成随机延迟
     getRandomDelay() {
         return Math.random() * (CONFIG.maxDelay - CONFIG.minDelay) + CONFIG.minDelay;
@@ -1990,10 +1933,6 @@ function showSettingsDialog(theme) {
     console.log('📋 加载最新设置:', {
         panelCollapsed: saved.panelDefaultCollapsed,
         searchCountRange: `${saved.minSearches}-${saved.maxSearches}`,
-        randomAdd: saved.randomAddSearchWords,
-        randomAddFactor: saved.randomAddSearchWordsFactor,
-        randomCut: saved.randomCutSearchWords,
-        randomCutFactor: saved.randomCutSearchWordsFactor,
         clickSearchResults: saved.clickSearchResults,
         pauseInterval: `${saved.pauseIntervalMin}-${saved.pauseIntervalMax}`,
         pauseTime: `${savedPauseTimeMin}-${savedPauseTimeMax}分钟`,
@@ -2134,91 +2073,8 @@ function showSettingsDialog(theme) {
                                 <span>选择脚本加载时面板的默认显示状态，可随时手动切换</span>
                             </div>
                         </div>
-                        </div>
-                    </div>
-
-                    <!-- 搜索行为配置 -->
-                    <div class="config-section" style="margin-bottom:24px;" data-section="搜索行为优化">
-                        <div class="section-header" style="display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:10px;border-bottom:2px solid ${theme['--panel-primary-color']}20;cursor:pointer;" title="点击展开/收起">
-                            <div class="section-icon" style="width:36px;height:36px;border-radius:10px;background:${theme['--panel-success-bg']};display:flex;align-items:center;justify-content:center;font-size:18px;">
-                                🎲
-                            </div>
-                            <div style="flex:1;">
-                                <h4 class="section-title" style="margin:0;font-size:16px;color:${theme['--panel-primary-color']};font-weight:700;letter-spacing:-0.3px;">
-                                    搜索行为优化
-                                </h4>
-                                <p class="section-desc" style="margin:2px 0 0;font-size:11px;color:${theme['--panel-text-muted']};font-weight:500;">
-                                    保留完整搜索词，按组获取关联查询
-                                </p>
-                            </div>
-                            <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
-                        </div>
-                        <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="checkbox-cards" hidden style="display:none;gap:14px;margin-bottom:14px;">
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.randomAddSearchWords ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.randomAddSearchWords ? 'linear-gradient(135deg,' + theme['--panel-info-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="随机加词功能 加词">
-                                ${saved.randomAddSearchWords ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="random-add-checkbox" disabled ${saved.randomAddSearchWords ? 'checked' : ''}
-                                    style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                <div style="flex:1;">
-                                    <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                                        <span style="font-size:16px;">🔤</span>
-                                        随机加词功能
-                                    </div>
-                                    <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.6;background:${theme['--panel-bg']};padding:8px 10px;border-radius:8px;border:1px solid ${theme['--panel-border']};font-family:'Courier New',monospace;">
-                                        人工智能发展 → 人工1智能发z展
-                                    </div>
-                                </div>
-                            </label>
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.randomCutSearchWords ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.randomCutSearchWords ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="随机截词功能 截词">
-                                ${saved.randomCutSearchWords ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="random-cut-checkbox" disabled ${saved.randomCutSearchWords ? 'checked' : ''}
-                                    style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
-                                <div style="flex:1;">
-                                    <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                                        <span style="font-size:16px;">✂️</span>
-                                        随机截词功能
-                                    </div>
-                                    <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.6;background:${theme['--panel-bg']};padding:8px 10px;border-radius:8px;border:1px solid ${theme['--panel-border']};font-family:'Courier New',monospace;">
-                                        人工1智能发展 → 人工1智
-                                    </div>
-                                </div>
-                            </label>
-                        </div>
-
-                        <div class="factor-inputs" hidden style="display:none;gap:14px;margin-bottom:14px;">
-                            <div class="factor-input-card" style="flex:1;padding:18px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="加词触发概率">
-                                <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                    加词触发概率
-                                    <span class="help-icon" style="font-size:12px;color:${theme['--panel-text-muted']};cursor:help;" title="控制加词功能的触发概率，0-1之间，值越高触发概率越大">❓</span>
-                                </label>
-                                <input type="number" id="random-add-factor-input" disabled class="form-input" value="${saved.randomAddSearchWordsFactor}" min="0" max="1" step="0.1"
-                                    style="width:100%;box-sizing:border-box;padding:12px 14px;border:2px solid ${theme['--panel-border']};border-radius:10px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:46px;font-weight:600;">
-                                <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
-                                    <span style="font-size:11px;color:${theme['--panel-text-muted']};">范围：0-1</span>
-                                    <span style="font-size:11px;color:${theme['--panel-primary-color']};font-weight:600;background:${theme['--panel-info-bg']};padding:3px 8px;border-radius:6px;">默认 0.3 (30%)</span>
-                                </div>
-                            </div>
-                            <div class="factor-input-card" style="flex:1;padding:18px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="截词触发概率">
-                                <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:${theme['--panel-text-primary']};font-weight:600;">
-                                    截词触发概率
-                                    <span class="help-icon" style="font-size:12px;color:${theme['--panel-text-muted']};cursor:help;" title="控制截词功能的触发概率，0-1之间，值越高触发概率越大">❓</span>
-                                </label>
-                                <input type="number" id="random-cut-factor-input" disabled class="form-input" value="${saved.randomCutSearchWordsFactor}" min="0" max="1" step="0.1"
-                                    style="width:100%;box-sizing:border-box;padding:12px 14px;border:2px solid ${theme['--panel-border']};border-radius:10px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:46px;font-weight:600;">
-                                <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
-                                    <span style="font-size:11px;color:${theme['--panel-text-muted']};">范围：0-1</span>
-                                    <span style="font-size:11px;color:${theme['--panel-primary-color']};font-weight:600;background:${theme['--panel-info-bg']};padding:3px 8px;border-radius:6px;">默认 0.2 (20%)</span>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="form-hint" style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;padding:14px 16px;background:linear-gradient(135deg,${theme['--panel-warning-bg']},${theme['--panel-hover-bg']});border-radius:10px;display:flex;align-items:flex-start;gap:8px;border-left:3px solid ${theme['--panel-warning-border']};">
-                            <span style="flex-shrink:0;font-size:16px;">💡</span>
-                            <div>
-                                <strong style="color:${theme['--panel-text-primary']};">完整关键词：</strong>分组搜索直接使用原始热词和经校验的关联词，不再随机加字符或截断关键词。旧加词、截词配置仅保留存储，不再生效。
-                            </div>
-                        </div>
                         <div class="checkbox-cards" style="margin-top:14px;">
-                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.clickSearchResults ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.clickSearchResults ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="搜索结果 手动打开链接">
+                            <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.clickSearchResults ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.clickSearchResults ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="搜索结果 自动打开链接 浏览">
                                 ${saved.clickSearchResults ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
                                 <input type="checkbox" id="click-search-results-checkbox" ${saved.clickSearchResults ? 'checked' : ''}
                                     style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
@@ -3085,11 +2941,7 @@ function showSettingsDialog(theme) {
     const minSearchesInput = document.getElementById('min-searches-input');
     const maxSearchesInput = document.getElementById('max-searches-input');
     const panelStateRadios = document.getElementsByName('panel-default-state');
-    const randomAddCheckbox = document.getElementById('random-add-checkbox');
-    const randomCutCheckbox = document.getElementById('random-cut-checkbox');
     const clickSearchResultsCheckbox = document.getElementById('click-search-results-checkbox');
-    const randomAddFactorInput = document.getElementById('random-add-factor-input');
-    const randomCutFactorInput = document.getElementById('random-cut-factor-input');
     const pauseIntervalMinInput = document.getElementById('pause-interval-min-input');
     const pauseIntervalMaxInput = document.getElementById('pause-interval-max-input');
     const pauseTimeMinInput = document.getElementById('pause-time-min-input');
@@ -3541,7 +3393,7 @@ function showSettingsDialog(theme) {
     });
 
     // 输入框焦点效果
-    [executionRegionInput, minSearchesInput, maxSearchesInput, randomAddFactorInput, randomCutFactorInput,
+    [executionRegionInput, minSearchesInput, maxSearchesInput,
      pauseIntervalMinInput, pauseIntervalMaxInput, pauseTimeMinInput, pauseTimeMaxInput,
      minDelayInput, maxDelayInput].forEach(input => {
         input.addEventListener('focus', () => {
@@ -3617,7 +3469,7 @@ function showSettingsDialog(theme) {
     });
 
     // Checkbox卡片样式更新
-    [randomAddCheckbox, randomCutCheckbox, clickSearchResultsCheckbox, autoClickTasksCheckbox, appCheckInCheckbox, appReadCheckbox].forEach(checkbox => {
+    [clickSearchResultsCheckbox, autoClickTasksCheckbox, appCheckInCheckbox, appReadCheckbox].forEach(checkbox => {
         if (!checkbox) return;
         const label = checkbox.closest('label');
 
@@ -3625,9 +3477,7 @@ function showSettingsDialog(theme) {
             if (checkbox.checked) {
                 label.style.borderColor = theme['--panel-primary-color'];
                 let bgColor = theme['--panel-info-bg'];
-                if (checkbox.id === 'random-cut-checkbox') {
-                    bgColor = theme['--panel-success-bg'];
-                } else if (checkbox.id === 'click-search-results-checkbox') {
+                if (checkbox.id === 'click-search-results-checkbox') {
                     bgColor = theme['--panel-success-bg'];
                 } else if (checkbox.id === 'auto-click-tasks-checkbox') {
                     bgColor = theme['--panel-success-bg'];
@@ -3675,10 +3525,6 @@ function showSettingsDialog(theme) {
         });
         minSearchesInput.value = 15;
         maxSearchesInput.value = 25;
-        randomAddCheckbox.checked = false;
-        randomAddFactorInput.value = 0.3;
-        randomCutCheckbox.checked = false;
-        randomCutFactorInput.value = 0.2;
         clickSearchResultsCheckbox.checked = false;
         pauseIntervalMinInput.value = 2;
         pauseIntervalMaxInput.value = 3;
@@ -3699,8 +3545,6 @@ function showSettingsDialog(theme) {
         renderAppUaPreset();
 
         // 触发checkbox样式更新
-        randomAddCheckbox.dispatchEvent(new Event('change'));
-        randomCutCheckbox.dispatchEvent(new Event('change'));
         clickSearchResultsCheckbox.dispatchEvent(new Event('change'));
         autoClickTasksCheckbox.dispatchEvent(new Event('change'));
         appCheckInCheckbox.dispatchEvent(new Event('change'));
@@ -3723,10 +3567,6 @@ function showSettingsDialog(theme) {
         const minSearches = parseInt(minSearchesInput.value);
         const maxSearches = parseInt(maxSearchesInput.value);
         const panelDefaultCollapsed = Array.from(panelStateRadios).find(r => r.checked).value === 'collapsed';
-        const randomAdd = randomAddCheckbox.checked;
-        const randomAddFactor = parseFloat(randomAddFactorInput.value);
-        const randomCut = randomCutCheckbox.checked;
-        const randomCutFactor = parseFloat(randomCutFactorInput.value);
         const clickSearchResults = clickSearchResultsCheckbox.checked;
         const pauseIntervalMin = parseInt(pauseIntervalMinInput.value);
         const pauseIntervalMax = parseInt(pauseIntervalMaxInput.value);
@@ -3752,14 +3592,6 @@ function showSettingsDialog(theme) {
         }
         if (!Number.isInteger(minSearches) || !Number.isInteger(maxSearches) || minSearches < 1 || maxSearches > 50 || minSearches > maxSearches) {
             showSettingsMessage('搜索次数区间应为 1-50，且最小次数不能大于最大次数。', 'error');
-            return;
-        }
-        if (randomAddFactor < 0 || randomAddFactor > 1) {
-            showSettingsMessage('加词因子应在 0-1 之间。', 'error');
-            return;
-        }
-        if (randomCutFactor < 0 || randomCutFactor > 1) {
-            showSettingsMessage('截词因子应在 0-1 之间。', 'error');
             return;
         }
         if (pauseIntervalMin < 1 || pauseIntervalMax < pauseIntervalMin) {
@@ -3810,10 +3642,6 @@ function showSettingsDialog(theme) {
         CONFIG.panelDefaultCollapsed = panelDefaultCollapsed;
         CONFIG.minSearches = minSearches;
         CONFIG.maxSearches = maxSearches;
-        CONFIG.randomAddSearchWords = randomAdd;
-        CONFIG.randomAddSearchWordsFactor = randomAddFactor;
-        CONFIG.randomCutSearchWords = randomCut;
-        CONFIG.randomCutSearchWordsFactor = randomCutFactor;
         CONFIG.clickSearchResults = clickSearchResults;
         CONFIG.pauseIntervalMin = pauseIntervalMin;
         CONFIG.pauseIntervalMax = pauseIntervalMax;
@@ -3838,10 +3666,6 @@ function showSettingsDialog(theme) {
             executionRegion,
             panelDefaultCollapsed,
             searchCountRange: `${minSearches}-${maxSearches}`,
-            randomAdd,
-            randomAddFactor,
-            randomCut,
-            randomCutFactor,
             clickSearchResults,
             pauseInterval: `${pauseIntervalMin}-${pauseIntervalMax}`,
             pauseTime: `${pauseTimeMin/60000}-${pauseTimeMax/60000}分钟`,
