@@ -13,12 +13,16 @@ function functionSource(name) {
 
 function harness() {
     const storage = new Map([['searchRunGeneration', 1], ['searchCount', 2]]);
-    const state = { isRunning: true };
+    const state = { isRunning: true, preparedSearchQuery: {
+        word: 'weather today', seed: 'weather today', source: 'seed', date: '2026-10-10',
+        region: 'us', runGeneration: 1, currentCount: 2, associationVersion: 1
+    } };
     const context = vm.createContext({
         URL, URLSearchParams, Date, Math,
         EXECUTION_REGIONS: { us: { language: 'en-US' }, hk: { language: 'zh-HK' } },
         getExecutionRegion: () => 'us',
-        utils: { getRandomStartParam: () => 'task', getRandomPauseTime: () => 60000 },
+        utils: { getRandomStartParam: () => 'task', getRandomPauseTime: () => 60000,
+            getTodayStr: () => '2026-10-10' },
         window: { location: new URL('https://www.bing.com/?task=1') },
         document: { querySelector: () => null },
         state,
@@ -31,7 +35,11 @@ function harness() {
         monitorSubmittedSearch() {},
         stopSearchWithError: message => { state.error = message; },
     });
-    vm.runInContext(['buildSearchUrl', 'performSearch', 'settlePendingSearch']
+    const filters = source.slice(source.indexOf('const ASSOCIATION_RULE_VERSION'),
+        source.indexOf('function isAssociationElementVisible'));
+    vm.runInContext(filters + ['getAssociationSearchHistory', 'recordConfirmedSearch',
+        'isCurrentAssociationRun', 'isPreparedSearchQueryValid',
+        'buildSearchUrl', 'performSearch', 'settlePendingSearch']
         .map(functionSource).join('\n'), context);
     return { context, storage, state };
 }
@@ -59,11 +67,13 @@ test('auto1 直接跳转 URL，结果页确认前不计数，确认后沿用组�
     assert.equal(context.window.location.searchParams.get('q'), 'weather today');
     assert.equal(storage.get('searchCount'), 2);
     assert.equal(storage.get('pendingSearchSubmission').nextCount, 3);
+    assert.equal(storage.has('associationSearchHistory'), false);
     assert.equal(context.settlePendingSearch(1, 'task', context.window.location.searchParams), true);
     assert.equal(storage.get('searchCount'), 3);
     assert.equal(storage.get('searchPauseState').afterCount, 3);
     assert.equal(storage.get('searchPauseState').duration, 60000);
     assert.equal(storage.has('pendingSearchSubmission'), false);
+    assert.deepEqual(Array.from(storage.get('associationSearchHistory').queries), ['weather today']);
 });
 
 test('旧任务不能再触发搜索跳转', () => {
@@ -73,4 +83,51 @@ test('旧任务不能再触发搜索跳转', () => {
     context.performSearch('stale', { currentCount: 2, maxCount: 15 }, 1);
     assert.equal(context.window.location.href, before);
     assert.equal(storage.has('pendingSearchSubmission'), false);
+});
+
+test('提交前拒绝界面文案、未知来源和被修改的候选，不跳转不计数', () => {
+    for (const [word, sourceName] of [['搜索更多内容', 'related'], ['valid query', 'unknown']]) {
+        const { context, storage, state } = harness();
+        state.preparedSearchQuery = { ...state.preparedSearchQuery, word, source: sourceName };
+        const before = context.window.location.href;
+        context.performSearch(word, { currentCount: 2, maxCount: 15 }, 1);
+        assert.equal(context.window.location.href, before);
+        assert.equal(storage.get('searchCount'), 2);
+        assert.equal(storage.has('pendingSearchSubmission'), false);
+        assert.match(state.error, /未提交、未计数/);
+    }
+    const { context, storage } = harness();
+    context.performSearch('weather', { currentCount: 2, maxCount: 15 }, 1);
+    assert.equal(storage.has('pendingSearchSubmission'), false);
+});
+
+test('等待期间进度、地区、日期改变或关键词已搜索，不再提交', () => {
+    const mutations = [
+        h => h.storage.set('searchCount', 3),
+        h => { h.context.getExecutionRegion = () => 'hk'; },
+        h => { h.context.utils.getTodayStr = () => '2026-10-11'; },
+        h => h.storage.set('associationSearchHistory', {
+            date: '2026-10-10', region: 'us', runGeneration: 1, queries: ['Weather Today!']
+        })
+    ];
+    for (const mutate of mutations) {
+        const h = harness();
+        mutate(h);
+        const before = h.context.window.location.href;
+        h.context.performSearch('weather today', { currentCount: 2, maxCount: 15 }, 1);
+        assert.equal(h.context.window.location.href, before);
+        assert.equal(h.storage.has('pendingSearchSubmission'), false);
+    }
+});
+
+test('提交后切换地区或跨日，结果页不计数、不记录搜索历史', () => {
+    for (const mutate of [h => { h.context.getExecutionRegion = () => 'hk'; },
+        h => { h.context.utils.getTodayStr = () => '2026-10-11'; }]) {
+        const h = harness();
+        h.context.performSearch('weather today', { currentCount: 2, maxCount: 15 }, 1);
+        mutate(h);
+        assert.equal(h.context.settlePendingSearch(1, 'task', h.context.window.location.searchParams), null);
+        assert.equal(h.storage.get('searchCount'), 2);
+        assert.equal(h.storage.has('associationSearchHistory'), false);
+    }
 });

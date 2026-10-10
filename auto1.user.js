@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.10.7.1
+// @version      26.10.10.1
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*/*
@@ -263,6 +263,7 @@ const state = {
     // 本页面自动打开的搜索结果标签页，用于任务终止时立即关闭。
     searchResultTabs: new Set(),
     cancelSearchPause: null,
+    preparedSearchQuery: null,
     // 面板显示数据集中保存，避免各执行流程直接拼接显示状态。
     panel: { currentWord: '', pauseTimeLeft: null, searchError: '' },
     // 任务点击相关状态（earn 日常任务 / dashboard 每日活动共用流程）
@@ -2147,16 +2148,16 @@ function showSettingsDialog(theme) {
                                     搜索行为优化
                                 </h4>
                                 <p class="section-desc" style="margin:2px 0 0;font-size:11px;color:${theme['--panel-text-muted']};font-weight:500;">
-                                    模拟真实用户搜索习惯，降低检测风险
+                                    保留完整搜索词，按组获取关联查询
                                 </p>
                             </div>
                             <span class="section-toggle" style="font-size:14px;color:${theme['--panel-text-muted']};transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);">▼</span>
                         </div>
                         <div class="section-content" style="overflow:hidden;max-height:1000px;transition:max-height 0.3s ease, opacity 0.3s ease;">
-                        <div class="checkbox-cards" style="display:flex;gap:14px;margin-bottom:14px;">
+                        <div class="checkbox-cards" hidden style="display:none;gap:14px;margin-bottom:14px;">
                             <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.randomAddSearchWords ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.randomAddSearchWords ? 'linear-gradient(135deg,' + theme['--panel-info-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="随机加词功能 加词">
                                 ${saved.randomAddSearchWords ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="random-add-checkbox" ${saved.randomAddSearchWords ? 'checked' : ''}
+                                <input type="checkbox" id="random-add-checkbox" disabled ${saved.randomAddSearchWords ? 'checked' : ''}
                                     style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
                                 <div style="flex:1;">
                                     <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
@@ -2170,7 +2171,7 @@ function showSettingsDialog(theme) {
                             </label>
                             <label class="checkbox-card" style="flex:1;display:flex;align-items:flex-start;gap:12px;padding:18px;border:2px solid ${saved.randomCutSearchWords ? theme['--panel-primary-color'] : theme['--panel-border']};border-radius:14px;background:${saved.randomCutSearchWords ? 'linear-gradient(135deg,' + theme['--panel-success-bg'] + ',transparent)' : theme['--panel-hover-bg']};cursor:pointer;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);position:relative;" data-search-tags="随机截词功能 截词">
                                 ${saved.randomCutSearchWords ? '<div class="badge" style="position:absolute;top:10px;right:10px;padding:3px 8px;border-radius:6px;background:' + theme['--panel-primary-color'] + ';color:#fff;font-size:10px;font-weight:700;">已启用</div>' : ''}
-                                <input type="checkbox" id="random-cut-checkbox" ${saved.randomCutSearchWords ? 'checked' : ''}
+                                <input type="checkbox" id="random-cut-checkbox" disabled ${saved.randomCutSearchWords ? 'checked' : ''}
                                     style="width:20px;height:20px;margin-top:2px;accent-color:${theme['--panel-primary-color']};cursor:pointer;flex-shrink:0;">
                                 <div style="flex:1;">
                                     <div style="font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
@@ -2184,13 +2185,13 @@ function showSettingsDialog(theme) {
                             </label>
                         </div>
 
-                        <div class="factor-inputs" style="display:flex;gap:14px;margin-bottom:14px;">
+                        <div class="factor-inputs" hidden style="display:none;gap:14px;margin-bottom:14px;">
                             <div class="factor-input-card" style="flex:1;padding:18px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="加词触发概率">
                                 <label style="display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:13px;color:${theme['--panel-text-primary']};font-weight:600;">
                                     加词触发概率
                                     <span class="help-icon" style="font-size:12px;color:${theme['--panel-text-muted']};cursor:help;" title="控制加词功能的触发概率，0-1之间，值越高触发概率越大">❓</span>
                                 </label>
-                                <input type="number" id="random-add-factor-input" class="form-input" value="${saved.randomAddSearchWordsFactor}" min="0" max="1" step="0.1"
+                                <input type="number" id="random-add-factor-input" disabled class="form-input" value="${saved.randomAddSearchWordsFactor}" min="0" max="1" step="0.1"
                                     style="width:100%;box-sizing:border-box;padding:12px 14px;border:2px solid ${theme['--panel-border']};border-radius:10px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:46px;font-weight:600;">
                                 <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
                                     <span style="font-size:11px;color:${theme['--panel-text-muted']};">范围：0-1</span>
@@ -2202,7 +2203,7 @@ function showSettingsDialog(theme) {
                                     截词触发概率
                                     <span class="help-icon" style="font-size:12px;color:${theme['--panel-text-muted']};cursor:help;" title="控制截词功能的触发概率，0-1之间，值越高触发概率越大">❓</span>
                                 </label>
-                                <input type="number" id="random-cut-factor-input" class="form-input" value="${saved.randomCutSearchWordsFactor}" min="0" max="1" step="0.1"
+                                <input type="number" id="random-cut-factor-input" disabled class="form-input" value="${saved.randomCutSearchWordsFactor}" min="0" max="1" step="0.1"
                                     style="width:100%;box-sizing:border-box;padding:12px 14px;border:2px solid ${theme['--panel-border']};border-radius:10px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;transition:all 0.3s cubic-bezier(0.4,0,0.2,1);height:46px;font-weight:600;">
                                 <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
                                     <span style="font-size:11px;color:${theme['--panel-text-muted']};">范围：0-1</span>
@@ -2213,7 +2214,7 @@ function showSettingsDialog(theme) {
                         <div class="form-hint" style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;padding:14px 16px;background:linear-gradient(135deg,${theme['--panel-warning-bg']},${theme['--panel-hover-bg']});border-radius:10px;display:flex;align-items:flex-start;gap:8px;border-left:3px solid ${theme['--panel-warning-border']};">
                             <span style="flex-shrink:0;font-size:16px;">💡</span>
                             <div>
-                                <strong style="color:${theme['--panel-text-primary']};">使用建议：</strong>开启后可有效混淆搜索行为，模拟真人输入习惯。因子值越高，触发概率越大。建议保持默认值，既能保证真实性，又不会影响搜索效果。
+                                <strong style="color:${theme['--panel-text-primary']};">完整关键词：</strong>分组搜索直接使用原始热词和经校验的关联词，不再随机加字符或截断关键词。旧加词、截词配置仅保留存储，不再生效。
                             </div>
                         </div>
                         <div class="checkbox-cards" style="margin-top:14px;">
@@ -2659,7 +2660,7 @@ function showSettingsDialog(theme) {
                                 <strong style="color:${theme['--panel-primary-color']};">🔍 自动搜索</strong> - 自动执行必应搜索任务，获取每日积分
                             </li>
                             <li style="margin-bottom:10px;font-size:14px;color:${theme['--panel-text-primary']};line-height:1.8;">
-                                <strong style="color:${theme['--panel-success-text']};">🎯 智能优化</strong> - 支持随机加词、截词功能，模拟真实搜索行为
+                                <strong style="color:${theme['--panel-success-text']};">🎯 关联搜索</strong> - 保留原始热词，使用经校验的搜索框联想、相关问题和相关搜索
                             </li>
                             <li style="margin-bottom:10px;font-size:14px;color:${theme['--panel-text-primary']};line-height:1.8;">
                                 <strong style="color:${theme['--panel-info-text']};">⏱️ 智能延迟</strong> - 可配置的搜索间隔和暂停时间，避免触发风控
@@ -3998,6 +3999,7 @@ function buildPanelNotice(icon, text, variant = 'info') {
 }
 
 function resetPanelStatus() {
+    state.preparedSearchQuery = null;
     state.panel.currentWord = '';
     state.panel.pauseTimeLeft = null;
     state.panel.searchError = '';
@@ -4201,6 +4203,7 @@ function updateStatusPanel(data = {}) {
  * 通过 Bing 搜索框联想接口获取与首词相关的查询建议。
  */
 async function fetchBingSuggestions(seed, region, limit) {
+    if (limit <= 0) return [];
     const regionConfig = EXECUTION_REGIONS[region];
     const params = new URLSearchParams({
         pt: 'page.home',
@@ -4209,30 +4212,38 @@ async function fetchBingSuggestions(seed, region, limit) {
     });
 
     return new Promise(resolve => {
-        GM_xmlhttpRequest({
-            method: 'GET',
-            url: `https://www.bing.com/AS/Suggestions?${params.toString()}`,
-            timeout: CONFIG.requestTimeout || 15000,
-            onload: res => {
-                try {
-                    const data = JSON.parse(res.responseText);
-                    const rawSuggestions = Array.isArray(data?.[1])
-                        ? data[1]
-                        : (data?.AS?.Results || []).flatMap(result => result.Suggests || []);
-                    const normalizedSeed = seed.trim().toLocaleLowerCase();
-                    const suggestions = rawSuggestions
-                        .map(item => typeof item === 'string' ? item : item?.Txt)
-                        .filter(item => typeof item === 'string')
-                        .map(item => normalizeAssociation(item, seed))
-                        .filter(item => item && item.toLocaleLowerCase() !== normalizedSeed);
-                    resolve([...new Set(suggestions)].slice(0, limit));
-                } catch {
-                    resolve([]);
-                }
-            },
-            onerror: () => resolve([]),
-            ontimeout: () => resolve([])
-        });
+        try {
+            GM_xmlhttpRequest({
+                method: 'GET',
+                url: `https://www.bing.com/AS/Suggestions?${params.toString()}`,
+                timeout: CONFIG.requestTimeout || 15000,
+                onload: res => {
+                    try {
+                        const data = JSON.parse(res.responseText);
+                        const rawSuggestions = Array.isArray(data?.[1])
+                            ? data[1]
+                            : (data?.AS?.Results || []).flatMap(result => result.Suggests || []);
+                        const suggestions = rawSuggestions
+                            .map(item => typeof item === 'string' ? item : item?.Txt)
+                            .map(item => normalizeAssociation(item, seed, 'suggestion'))
+                            .filter(Boolean);
+                        const seen = new Set();
+                        resolve(suggestions.filter(item => {
+                            const key = associationKey(item);
+                            if (seen.has(key)) return false;
+                            seen.add(key);
+                            return true;
+                        }).slice(0, limit));
+                    } catch {
+                        resolve([]);
+                    }
+                },
+                onerror: () => resolve([]),
+                ontimeout: () => resolve([])
+            });
+        } catch {
+            resolve([]);
+        }
     });
 }
 
@@ -4257,154 +4268,280 @@ function getNextPauseAt(currentCount) {
     return nextPauseAt;
 }
 
+// 比较时归一化，提交时仍使用原词；规则版本用于丢弃旧 DOM 采集结果。
+const ASSOCIATION_RULE_VERSION = 1;
 const ASSOCIATION_UI_TEXT = new Set([
-    'tell us more',
-    'feedback',
-    'learn more',
-    'see more',
-    'report an issue',
-    '告诉我们更多',
-    '告诉我们更多信息',
-    '告訴我們更多',
-    '告訴我們更多資訊',
-    '反馈',
-    '回饋',
-    '了解更多',
-    '查看更多'
+    'tell us more', 'tell us more information', 'report an issue',
+    'search more', 'search more content', 'search for more', 'search for more content',
+    'see more results', 'show more results', 'view more results',
+    '告诉我们更多', '告诉我们更多信息', '告訴我們更多', '告訴我們更多資訊',
+    '告訴我們更多信息', '搜索更多', '搜索更多内容', '搜索更多內容',
+    '搜尋更多', '搜尋更多內容', '搜寻更多', '搜寻更多内容',
+    '查看更多搜索结果', '查看更多搜尋結果', '显示更多搜索结果', '顯示更多搜尋結果'
+]);
+const ASSOCIATION_PAGE_CONTROLS = new Set([
+    'feedback', 'learn more', 'see more', 'show more', 'view more', 'more',
+    '反馈', '反饋', '回饋', '了解更多', '查看更多', '显示更多', '顯示更多',
+    '更多', '展开', '展開', '收起', '相关搜索', '相關搜尋', 'related searches',
+    'people also ask', '其他人还问了', '其他人也问了'
 ]);
 
-function normalizeAssociation(text, seed) {
+function associationKey(text) {
     if (typeof text !== 'string') return '';
-    const query = text.replace(/\s+/g, ' ').trim();
-    const normalizedQuery = query.toLocaleLowerCase().replace(/[.!?。！？]+$/g, '');
-    if (
-        query.length < 2 ||
-        query.length > 80 ||
-        /^\d+$/.test(query) ||
-        normalizedQuery === seed.toLocaleLowerCase() ||
-        ASSOCIATION_UI_TEXT.has(normalizedQuery)
-    ) {
-        return '';
-    }
+    return text.normalize('NFKC')
+        .replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '')
+        .replace(/\s+/g, ' ').trim().toLowerCase()
+        .replace(/[.!?。！？:：…›»]+$/g, '').trim();
+}
+
+function normalizeAssociation(text, seed, source) {
+    if (!['suggestion', 'paa', 'related'].includes(source) || typeof text !== 'string') return '';
+    const query = text.trim();
+    const key = associationKey(query);
+    if (!key || query.length > 200 || key === associationKey(seed) ||
+        ASSOCIATION_UI_TEXT.has(key) ||
+        (source !== 'suggestion' && ASSOCIATION_PAGE_CONTROLS.has(key))) return '';
+    // 不按问号、首词子串或纯数字筛选，避免误伤真实问题、年份等查询。
     return query;
 }
 
-function getTextCandidates(elements, seed) {
-    return [...new Set([...elements]
-        .map(element => normalizeAssociation(element.textContent, seed))
-        .filter(Boolean))];
+function isAssociationElementVisible(element) {
+    if (!element || element.closest('[hidden], [aria-hidden="true"], template')) return false;
+    if (element.getClientRects().length === 0) return false;
+    const style = window.getComputedStyle(element);
+    return style.display !== 'none' && style.visibility !== 'hidden' && style.visibility !== 'collapse';
+}
+
+function isAssociationControl(element) {
+    const marker = [element.id, element.className, element.getAttribute('data-tag')].join(' ');
+    const labels = ['aria-label', 'title'].map(name => associationKey(element.getAttribute(name)));
+    return /(?:^|[\s_-])(?:feedback|report|(?:show|see|view|search)[-_]?more)(?:$|[\s_-])/i.test(marker) ||
+        labels.some(label => ASSOCIATION_UI_TEXT.has(label) || ASSOCIATION_PAGE_CONTROLS.has(label));
+}
+
+function isSeedSearchPage(seed) {
+    const url = new URL(window.location.href);
+    const input = document.querySelector('#sb_form_q');
+    return /(^|\.)bing\.com$/i.test(url.hostname) && url.pathname === '/search' &&
+        url.searchParams.getAll('q').length === 1 &&
+        associationKey(url.searchParams.get('q')) === associationKey(seed) &&
+        (!input || associationKey(input.value) === associationKey(seed)) &&
+        !!document.querySelector('#b_results');
 }
 
 function collectPageAssociations(seed) {
-    const peopleAlsoAsk = getTextCandidates(document.querySelectorAll([
-        '#b_results .b_ans [role="button"]',
-        '#b_results .b_ans .b_vList li',
-        '[data-tag*="peoplealsoask"] [role="button"]',
-        '[data-tag*="peoplealsoask"] a'
-    ].join(',')), seed);
-    const relatedSearches = getTextCandidates(document.querySelectorAll([
-        '#b_rs a',
-        '.b_rs a',
-        '[data-tag*="related"] a',
-        '[aria-label*="Related"] a',
-        '[aria-label*="related"] a'
-    ].join(',')), seed);
+    const peopleAlsoAsk = [];
+    const relatedSearches = [];
+    if (!isSeedSearchPage(seed)) return { peopleAlsoAsk, relatedSearches };
+    const seen = new Set();
+    const add = (list, text, source) => {
+        const query = normalizeAssociation(text, seed, source);
+        const key = associationKey(query);
+        if (!query || seen.has(key)) return;
+        seen.add(key);
+        list.push(query);
+    };
 
+    // 只读取已识别 PAA 容器中的明确问题节点，不扫描通用答案卡片和按钮文字。
+    const questionSelector = '[data-question], .b_paaQuestion, .df_alask, [role="button"][aria-controls][aria-expanded]';
+    document.querySelectorAll('#b_results [data-tag*="peoplealsoask" i], #b_results [data-tag*="relatedquestions" i], #b_results .b_paa')
+        .forEach(container => container.querySelectorAll(questionSelector).forEach(element => {
+            if (!isAssociationElementVisible(element) || isAssociationControl(element)) return;
+            const label = element.querySelector('.b_paaQuestion, .df_alask, [data-question-text]');
+            const question = element.getAttribute('data-question') || label?.textContent ||
+                element.getAttribute('aria-label') ||
+                (element.matches('.b_paaQuestion, .df_alask') ? element.textContent : '');
+            add(peopleAlsoAsk, question, 'paa');
+        }));
+
+    // 相关搜索必须是 Bing 的实际查询链接，且可见文字与 q 一致。
+    document.querySelectorAll('#b_rs, #b_results .b_rs, #b_results [data-tag="relatedsearches" i]')
+        .forEach(container => container.querySelectorAll('a[href]').forEach(element => {
+            if (!isAssociationElementVisible(element) || isAssociationControl(element)) return;
+            try {
+                const url = new URL(element.getAttribute('href'), window.location.href);
+                if (url.protocol !== 'https:' || !/(^|\.)bing\.com$/i.test(url.hostname) ||
+                    url.username || url.password || url.pathname !== '/search' ||
+                    url.searchParams.getAll('q').length !== 1) return;
+                const query = url.searchParams.get('q');
+                if (associationKey(element.textContent) !== associationKey(query)) return;
+                add(relatedSearches, query, 'related');
+            } catch { /* 非查询 URL 不作为关联词。 */ }
+        }));
     return { peopleAlsoAsk, relatedSearches };
 }
 
-function buildGroupQueries(group) {
+function getAssociationSearchHistory(region, runGeneration) {
+    const saved = GM_getValue('associationSearchHistory', null);
+    return saved?.date === utils.getTodayStr() && saved.region === region &&
+        saved.runGeneration === runGeneration && Array.isArray(saved.queries) ? saved.queries : [];
+}
+
+function recordConfirmedSearch(searchWord, region, runGeneration) {
+    const queries = getAssociationSearchHistory(region, runGeneration).slice();
+    if (!queries.some(query => associationKey(query) === associationKey(searchWord))) queries.push(searchWord);
+    GM_setValue('associationSearchHistory', {
+        date: utils.getTodayStr(), region, runGeneration, queries
+    });
+}
+
+function buildGroupQueries(group, currentCount = group.startCount, history = []) {
     const maxQueries = group.endCount - group.startCount;
-    const sourceLists = [
-        group.searchBoxSuggestions || [],
-        group.peopleAlsoAsk || [],
-        group.relatedSearches || []
-    ];
-    const queries = [group.seed];
-    const seen = new Set([group.seed.toLocaleLowerCase()]);
-    let cursor = group.startCount % sourceLists.length;
+    const executedCount = Math.max(0, currentCount - group.startCount);
+    // 保留已执行前缀和下标，仅重建尚未执行的候选，进度及暂停边界不变。
+    const queries = executedCount > 0 ? group.queries.slice(0, executedCount) : [group.seed];
+    const querySources = executedCount > 0
+        ? (Array.isArray(group.querySources) ? group.querySources : []).slice(0, executedCount) : ['seed'];
+    while (querySources.length < queries.length) querySources.push('executed');
+    const sourceNames = ['suggestion', 'paa', 'related'];
+    const sourceLists = [group.searchBoxSuggestions, group.peopleAlsoAsk, group.relatedSearches]
+        .map(list => Array.isArray(list) ? list.slice() : []);
+    const seen = new Set([...history, ...queries, group.seed].map(associationKey));
+    let cursor = (group.startCount + Math.max(0, queries.length - 1)) % sourceLists.length;
 
     while (queries.length < maxQueries) {
         let added = false;
         for (let offset = 0; offset < sourceLists.length; offset++) {
-            const source = sourceLists[(cursor + offset) % sourceLists.length];
-            const candidate = source.shift();
-            if (!candidate || seen.has(candidate.toLocaleLowerCase())) continue;
-            seen.add(candidate.toLocaleLowerCase());
-            queries.push(candidate);
-            cursor = (cursor + offset + 1) % sourceLists.length;
-            added = true;
-            break;
+            const index = (cursor + offset) % sourceLists.length;
+            const source = sourceLists[index];
+            // 无效项/重复项只跳过本项，不因此漏掉该来源后面的有效词。
+            while (source.length > 0) {
+                const candidate = normalizeAssociation(source.shift(), group.seed, sourceNames[index]);
+                const key = associationKey(candidate);
+                if (!candidate || seen.has(key)) continue;
+                seen.add(key);
+                queries.push(candidate);
+                querySources.push(sourceNames[index]);
+                cursor = (index + 1) % sourceLists.length;
+                added = true;
+                break;
+            }
+            if (added) break;
         }
         if (!added) break;
     }
+    return { queries, querySources };
+}
 
-    return queries;
+function isCurrentAssociationRun(group, currentCount) {
+    return isCurrentSearchRun(group.runGeneration) && group.region === getExecutionRegion() &&
+        group.date === utils.getTodayStr() && Number(GM_getValue('searchCount', 0)) === currentCount;
 }
 
 async function enrichSearchGroupFromPage(group, currentCount) {
-    if (group.pageAssociationsCollected || currentCount !== group.startCount + 1) {
-        return group;
+    if (group.pageAssociationsCollected || currentCount !== group.startCount + 1) return group;
+    let previous = '';
+    // 页面内容可能延迟加载；只采纳首词结果页上连续两次稳定的采集快照。
+    for (let attempt = 0; attempt < 6; attempt++) {
+        if (!isCurrentAssociationRun(group, currentCount)) return null;
+        if (!isSeedSearchPage(group.seed)) return group;
+        const associations = collectPageAssociations(group.seed);
+        const snapshot = JSON.stringify(associations);
+        if (snapshot === previous && (associations.peopleAlsoAsk.length || associations.relatedSearches.length)) {
+            group.peopleAlsoAsk = associations.peopleAlsoAsk;
+            group.relatedSearches = associations.relatedSearches;
+            break;
+        }
+        previous = snapshot;
+        if (attempt < 5) await new Promise(resolve => setTimeout(resolve, 250));
     }
-
-    let associations = collectPageAssociations(group.seed);
-    if (associations.peopleAlsoAsk.length === 0 && associations.relatedSearches.length === 0) {
-        await new Promise(resolve => setTimeout(resolve, 800));
-        associations = collectPageAssociations(group.seed);
-    }
-
-    group.peopleAlsoAsk = associations.peopleAlsoAsk;
-    group.relatedSearches = associations.relatedSearches;
+    if (!isCurrentAssociationRun(group, currentCount)) return null;
     group.pageAssociationsCollected = true;
-    group.queries = buildGroupQueries(group);
     return group;
 }
 
-async function getGroupedSearchWord(taskStatus) {
+function prepareGroupedQuery(group, currentCount) {
+    const index = currentCount - group.startCount;
+    const word = group.queries[index];
+    state.preparedSearchQuery = {
+        word, seed: group.seed, source: group.querySources[index],
+        date: group.date, region: group.region, runGeneration: group.runGeneration,
+        currentCount, associationVersion: group.associationVersion
+    };
+    return word;
+}
+
+async function getGroupedSearchWord(taskStatus, runGeneration) {
     const region = getExecutionRegion();
+    const date = utils.getTodayStr();
     const groupKey = getSearchGroupStorageKey(region);
     const currentCount = taskStatus.currentCount;
-    const savedGroup = GM_getValue(groupKey, null);
+    const run = { date, region, runGeneration };
+    if (!isCurrentAssociationRun(run, currentCount)) return '';
+    state.preparedSearchQuery = null;
+    const saved = GM_getValue(groupKey, null);
+    const history = getAssociationSearchHistory(region, runGeneration);
+    const seen = new Set(history.map(associationKey));
+    let previousSeed = '';
 
-    if (
-        savedGroup &&
-        savedGroup.date === utils.getTodayStr() &&
-        Array.isArray(savedGroup.queries) &&
-        savedGroup.queries.length > 0 &&
-        savedGroup.startCount <= currentCount &&
-        currentCount < savedGroup.endCount
-    ) {
-        const group = await enrichSearchGroupFromPage(savedGroup, currentCount);
-        const queryIndex = currentCount - group.startCount;
-
-        // 联想词不足时提前结束当前组，下一次搜索立即以新的随机热词开组。
-        if (queryIndex >= group.queries.length) {
-            group.endCount = currentCount;
-            GM_setValue(groupKey, group);
-            GM_log(`联想词不足，结束词组「${group.seed}」并切换新的热词`);
-            return getGroupedSearchWord(taskStatus);
+    if (saved?.date === date && (saved.runGeneration == null || saved.runGeneration === runGeneration) &&
+        (saved.region == null || saved.region === region) && typeof saved.seed === 'string' && saved.seed.trim() &&
+        Number.isInteger(saved.startCount) && saved.startCount >= 0 && Number.isInteger(saved.endCount) &&
+        Array.isArray(saved.queries) && saved.queries.length >= currentCount - saved.startCount &&
+        saved.startCount <= currentCount && currentCount < saved.endCount) {
+        const group = { ...saved, ...run, queries: saved.queries.slice(),
+            endCount: Math.min(saved.endCount, taskStatus.maxCount) };
+        previousSeed = group.seed;
+        group.queries.slice(0, currentCount - group.startCount).forEach(word => seen.add(associationKey(word)));
+        const needsMigration = group.associationVersion !== ASSOCIATION_RULE_VERSION;
+        if (needsMigration) {
+            // 老缓存保留已执行记录，但重新获取候选，不复用旧通用 DOM 提取结果。
+            group.searchBoxSuggestions = await fetchBingSuggestions(group.seed, region, 20);
+            if (!isCurrentAssociationRun(run, currentCount)) return '';
+            group.peopleAlsoAsk = [];
+            group.relatedSearches = [];
+            group.pageAssociationsCollected = false;
+            group.associationVersion = ASSOCIATION_RULE_VERSION;
         }
-
+        const enriched = await enrichSearchGroupFromPage(group, currentCount);
+        if (!enriched || !isCurrentAssociationRun(run, currentCount)) return '';
+        if (needsMigration) {
+            group.queries.slice(0, currentCount - group.startCount)
+                .filter(word => typeof word === 'string' && associationKey(word))
+                .forEach(word => recordConfirmedSearch(word, region, runGeneration));
+        }
+        Object.assign(group, buildGroupQueries(group, currentCount, history));
+        if (currentCount - group.startCount < group.queries.length) {
+            GM_setValue(groupKey, group);
+            return prepareGroupedQuery(group, currentCount);
+        }
+        group.endCount = currentCount;
         GM_setValue(groupKey, group);
-        return group.queries[queryIndex];
+        GM_log(`联想词不足，结束词组「${group.seed}」并切换新的热词`);
+    } else if (saved?.date === date && saved.runGeneration === runGeneration) {
+        previousSeed = saved.seed;
     }
 
-    const endCount = getNextPauseAt(currentCount);
-    const seed = state.searchWords[Math.floor(Math.random() * state.searchWords.length)];
+    // 无递归：当前候选耗尽后只开一组新热词；无可用首词则明确停止。
+    if (previousSeed) seen.add(associationKey(previousSeed));
+    const availableSeeds = words => [...new Map((Array.isArray(words) ? words : [])
+        .filter(word => typeof word === 'string' && associationKey(word) && !seen.has(associationKey(word)))
+        .map(word => [associationKey(word), word])).values()];
+    let seeds = availableSeeds(state.searchWords);
+    if (!seeds.length) seeds = availableSeeds(getRegionFallbackSearchWords(region));
+    if (!seeds.length) return '';
+    const seed = seeds[Math.floor(Math.random() * seeds.length)];
+    const endCount = Math.min(getNextPauseAt(currentCount), taskStatus.maxCount);
+    const suggestions = await fetchBingSuggestions(seed, region, endCount > currentCount + 1 ? 20 : 0);
+    if (!isCurrentAssociationRun(run, currentCount)) return '';
     const group = {
-        date: utils.getTodayStr(),
-        startCount: currentCount,
-        endCount,
-        seed,
-        searchBoxSuggestions: await fetchBingSuggestions(seed, region, endCount - currentCount - 1),
-        peopleAlsoAsk: [],
-        relatedSearches: [],
-        queries: [seed],
-        pageAssociationsCollected: false
+        ...run, associationVersion: ASSOCIATION_RULE_VERSION, startCount: currentCount, endCount, seed,
+        searchBoxSuggestions: suggestions, peopleAlsoAsk: [], relatedSearches: [],
+        queries: [seed], querySources: ['seed'], pageAssociationsCollected: false
     };
     GM_setValue(groupKey, group);
+    return prepareGroupedQuery(group, currentCount);
+}
 
-    return seed;
+function isPreparedSearchQueryValid(searchWord, taskStatus, runGeneration, prepared) {
+    if (!prepared || prepared.word !== searchWord || prepared.currentCount !== taskStatus.currentCount ||
+        prepared.runGeneration !== runGeneration || prepared.associationVersion !== ASSOCIATION_RULE_VERSION ||
+        !isCurrentAssociationRun(prepared, taskStatus.currentCount) ||
+        typeof searchWord !== 'string' || !associationKey(searchWord)) return false;
+    if (getAssociationSearchHistory(prepared.region, runGeneration)
+        .some(word => associationKey(word) === associationKey(searchWord))) return false;
+    return prepared.source === 'seed' ? searchWord === prepared.seed :
+        normalizeAssociation(searchWord, prepared.seed, prepared.source) === searchWord;
 }
 
 /**
@@ -4721,11 +4858,14 @@ async function executeSearch(runGeneration) {
         state.searchWords = ['Bing'];
     }
 
-    const searchWord = await getGroupedSearchWord(taskStatus);
+    const searchWord = await getGroupedSearchWord(taskStatus, runGeneration);
     if (!isCurrentSearchRun(runGeneration)) return;
-
-    // 对搜索词进行处理
-    const processedSearchWord = utils.processSearchWord(searchWord);
+    if (!searchWord) {
+        stopSearchWithError('没有可用且未搜索的关键词，任务已停止');
+        return;
+    }
+    // 已校验的关联词和原始热词不再随机加字符/截断；固定本次选择供提交前复检。
+    const preparedQuery = state.preparedSearchQuery;
 
     const delay = utils.getRandomDelay();
 
@@ -4734,29 +4874,34 @@ async function executeSearch(runGeneration) {
     state.countdownDuration = delay;
 
     // 更新面板
-    updateStatusPanel({ currentWord: processedSearchWord });
+    updateStatusPanel({ currentWord: searchWord });
 
     // 使用精确计时器,不受页面可见性影响
     utils.addTimer(setTimeout(() => {
         if (!isCurrentSearchRun(runGeneration)) return;
         utils.clearAllTimers();
-        performSearch(processedSearchWord, taskStatus, runGeneration);
+        performSearch(searchWord, taskStatus, runGeneration, preparedQuery);
     }, delay));
 
     // 添加一个定期更新面板的定时器（每秒更新一次）
     utils.addTimer(setInterval(() => {
-        updateStatusPanel({ currentWord: processedSearchWord });
+        updateStatusPanel({ currentWord: searchWord });
     }, 1000));
 }
 
 /**
  * 通过搜索 URL 跳转；直到结果页确认查询词后才计入进度。
  */
-function performSearch(searchWord, taskStatus, runGeneration) {
+function performSearch(searchWord, taskStatus, runGeneration, prepared = state.preparedSearchQuery) {
     if (!isCurrentSearchRun(runGeneration)) return;
+    if (!isPreparedSearchQueryValid(searchWord, taskStatus, runGeneration, prepared)) {
+        stopSearchWithError('搜索词校验失败或任务状态已变化，本次未提交、未计数');
+        return;
+    }
     const nextCount = taskStatus.currentCount + 1;
     GM_setValue('pendingSearchSubmission', {
-        runGeneration, searchWord, nextCount, maxCount: taskStatus.maxCount
+        runGeneration, searchWord, nextCount, maxCount: taskStatus.maxCount,
+        region: prepared.region, date: prepared.date
     });
     GM_log(`搜索: ${searchWord} (${nextCount}/${taskStatus.maxCount})`);
     state.countdownStartTime = 0;
@@ -4818,6 +4963,11 @@ function settlePendingSearch(runGeneration, startParam, urlParams) {
         GM_deleteValue('pendingSearchSubmission');
         return false;
     }
+    if ((pending.region && pending.region !== getExecutionRegion()) ||
+        (pending.date && pending.date !== utils.getTodayStr())) {
+        stopSearchWithError('搜索期间地区或日期发生变化，本次未计数');
+        return null;
+    }
     const currentCount = Number(GM_getValue('searchCount', 0));
     if (window.location.pathname !== '/search' || urlParams.get('q') !== pending.searchWord ||
         pending.nextCount !== currentCount + 1) {
@@ -4838,6 +4988,7 @@ function settlePendingSearch(runGeneration, startParam, urlParams) {
         urlParams.set(startParam, '1');
     }
     GM_setValue('searchCount', pending.nextCount);
+    recordConfirmedSearch(pending.searchWord, pending.region || getExecutionRegion(), runGeneration);
     const nextPauseAt = getNextPauseAt(currentCount);
     if (pending.nextCount >= nextPauseAt && pending.nextCount < pending.maxCount) {
         GM_setValue('searchPauseState', {
