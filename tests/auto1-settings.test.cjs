@@ -9,26 +9,26 @@ const settingsStart = source.indexOf('function showSettingsDialog(theme)');
 const renderEnd = source.indexOf('\n    document.body.appendChild(dialog);', settingsStart);
 assert.ok(settingsStart >= 0 && renderEnd > settingsStart);
 const configSource = source.slice(source.indexOf('const CONFIG_SCHEMA'), source.indexOf('// 状态管理'));
+const presetsSource = source.slice(source.indexOf('// APP 设备预设：'), source.indexOf('\nfunction getAccountProfileUrl'));
+assert.ok(presetsSource.includes('function buildAppPresetOptions'));
 
-function renderSettings(clickSearchResults) {
+function renderSettings(clickSearchResults, presetId = 'android-16-xiaomi15') {
     const storage = new Map([
         ['customClickSearchResults', clickSearchResults],
+        ['customAppUaPreset', presetId],
         ['customRandomAddSearchWords', true], ['customRandomAddSearchWordsFactor', 2],
         ['customRandomCutSearchWords', true], ['customRandomCutSearchWordsFactor', 2]
     ]);
     const context = vm.createContext({
         Date, Math, console: { log() {} },
-        GM_info: { script: { version: '26.10.10.2' } },
+        GM_info: { script: { version: '26.10.10.3' } },
         GM_getValue: (key, fallback) => storage.has(key) ? storage.get(key) : fallback,
         GM_setValue: (key, value) => storage.set(key, value),
         document: { getElementById: () => null, createElement: () => ({ innerHTML: '' }) },
         EXECUTION_REGIONS: { cn: { label: '中国大陆', language: 'zh-CN' } },
-        APP_CLIENT_DEFAULT_PRESET: 'android-16-xiaomi15',
-        APP_CLIENT_PRESETS: [{ id: 'android-16-xiaomi15', name: 'test device', label: 'test device',
-            channel: 'test', version: '1', userAgent: 'test agent' }],
         utils: { escapeHtml: text => String(text) }
     });
-    vm.runInContext(configSource + '\n' + source.slice(settingsStart, renderEnd) +
+    vm.runInContext(configSource + '\n' + presetsSource + '\n' + source.slice(settingsStart, renderEnd) +
         '\nreturn dialog.innerHTML;\n}\n' +
         'globalThis.html = showSettingsDialog({}); globalThis.schema = CONFIG_SCHEMA;', context);
     return { html: context.html, schema: context.schema, storage };
@@ -78,4 +78,24 @@ test('保留搜索结果开关的原存储键和状态，不删除已有用户�
         assert.equal(storage.get('customClickSearchResults'), enabled);
         assert.equal(storage.get('customRandomAddSearchWords'), true);
     }
+});
+
+test('设备下拉框按 Android/iOS 分组，显示全部 14 项并保留旧、新选择', () => {
+    for (const selectedId of ['android-16-xiaomi15', 'android-15-pixel9', 'android-14-galaxy-s24',
+        'ios-18-iphone16', 'android-14-oppo-findx7', 'ios-17-iphone']) {
+        const { html, storage } = renderSettings(false, selectedId);
+        const select = html.match(/<select\b[^>]*id="app-ua-preset-select"[^>]*>([\s\S]*?)<\/select>/)[1];
+        assert.equal([...select.matchAll(/<option\b/g)].length, 14);
+        assert.match(select, /<optgroup label="Android">/);
+        assert.match(select, /<optgroup label="iOS">/);
+        assert.equal([...select.matchAll(/\bselected\b/g)].length, 1);
+        assert.match(select, new RegExp(`value="${selectedId}" selected`));
+        assert.equal([...select.matchAll(/（兼容模板）/g)].length, 10);
+        assert.equal(storage.get('customAppUaPreset'), selectedId);
+    }
+});
+
+test('无效设备配置在设置页也回退到现有默认设备', () => {
+    const { html } = renderSettings(false, 'invalid-preset');
+    assert.match(html, /value="android-16-xiaomi15" selected/);
 });

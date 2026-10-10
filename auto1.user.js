@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.10.10.2
+// @version      26.10.10.3
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*/*
@@ -319,6 +319,21 @@ const REWARDS_APP_SPEC = {
     requestTimeout: 15 * 1000
 };
 
+// APP 设备预设：新增条目为兼容模板，未经过真机抓取，不编造 Build 或采集记录。
+const APP_CLIENT_PRESET_VERSION = '32.6.2110003560';
+const APP_CLIENT_WEBVIEW_VERSION = '144.0.7559.132';
+
+function createAppClientPreset({ id, label, platform, osVersion, model }) {
+    const isIos = platform === 'ios';
+    const userAgent = isIos
+        ? `Mozilla/5.0 (iPhone; CPU iPhone OS ${osVersion.replace(/\./g, '_')} like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/${osVersion} Mobile/15E148 Safari/604.1 BingSapphire/${APP_CLIENT_PRESET_VERSION}`
+        : `Mozilla/5.0 (Linux; Android ${osVersion}; ${model}; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/${APP_CLIENT_WEBVIEW_VERSION} Mobile Safari/537.36 BingSapphire/${APP_CLIENT_PRESET_VERSION}`;
+    return {
+        id, label, channel: isIos ? 'SAIOS' : 'SAAndroid', version: APP_CLIENT_PRESET_VERSION,
+        kind: 'template', userAgent
+    };
+}
+
 const APP_CLIENT_PRESETS = [
     {
         id: 'android-16-xiaomi15', label: 'Android 16 · Xiaomi 15 Pro', channel: 'SAAndroid', version: '32.6.2110003560',
@@ -335,9 +350,35 @@ const APP_CLIENT_PRESETS = [
     {
         id: 'ios-18-iphone16', label: 'iOS 18 · iPhone 16 Pro', channel: 'SAIOS', version: '32.6.2110003560',
         userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1 BingSapphire/32.6.2110003560'
-    }
+    },
+    createAppClientPreset({ id: 'android-14-xiaomi14', label: 'Android 14 · Xiaomi 14', platform: 'android', osVersion: '14', model: 'Xiaomi 14' }),
+    createAppClientPreset({ id: 'android-14-redmi-k70', label: 'Android 14 · Redmi K70', platform: 'android', osVersion: '14', model: 'Redmi K70' }),
+    createAppClientPreset({ id: 'android-14-oneplus12', label: 'Android 14 · OnePlus 12', platform: 'android', osVersion: '14', model: 'OnePlus 12' }),
+    createAppClientPreset({ id: 'android-14-oppo-findx7', label: 'Android 14 · OPPO Find X7', platform: 'android', osVersion: '14', model: 'OPPO Find X7' }),
+    createAppClientPreset({ id: 'android-14-vivo-x100', label: 'Android 14 · vivo X100', platform: 'android', osVersion: '14', model: 'vivo X100' }),
+    createAppClientPreset({ id: 'android-14-honor-magic6', label: 'Android 14 · HONOR Magic6', platform: 'android', osVersion: '14', model: 'HONOR Magic6' }),
+    createAppClientPreset({ id: 'android-14-pixel8', label: 'Android 14 · Pixel 8', platform: 'android', osVersion: '14', model: 'Pixel 8' }),
+    createAppClientPreset({ id: 'android-13-galaxy-s23', label: 'Android 13 · Galaxy S23', platform: 'android', osVersion: '13', model: 'Galaxy S23' }),
+    createAppClientPreset({ id: 'ios-17-iphone', label: 'iOS 17.7 · iPhone', platform: 'ios', osVersion: '17.7' }),
+    createAppClientPreset({ id: 'ios-16-iphone', label: 'iOS 16.7 · iPhone', platform: 'ios', osVersion: '16.7' })
 ];
 const APP_CLIENT_DEFAULT_PRESET = APP_CLIENT_PRESETS[0].id;
+
+function buildAppPresetOptions(selectedId) {
+    const selected = APP_CLIENT_PRESETS.some(preset => preset.id === selectedId)
+        ? selectedId : APP_CLIENT_DEFAULT_PRESET;
+    return [{ channel: 'SAAndroid', label: 'Android' }, { channel: 'SAIOS', label: 'iOS' }]
+        .map(group => `<optgroup label="${group.label}">${APP_CLIENT_PRESETS
+            .filter(preset => preset.channel === group.channel)
+            .map(preset => `<option value="${utils.escapeHtml(preset.id)}" ${preset.id === selected ? 'selected' : ''}>${utils.escapeHtml(preset.label)}${preset.kind === 'template' ? '（兼容模板）' : ''}</option>`)
+            .join('')}</optgroup>`).join('');
+}
+
+function getAppPresetNotice(preset) {
+    return preset.kind === 'template'
+        ? '兼容模板（非真机采集）；仅设置请求头，不代表真实机型或设备环境。'
+        : '已有预设（来源未经验证）；仅设置请求头，不代表真实机型或设备环境。';
+}
 
 // APP 客户端信息集中读取；非法配置自动回退默认预设。
 function getAppClient() {
@@ -2368,12 +2409,12 @@ function showSettingsDialog(theme) {
                             <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
                                 <span style="font-size:16px;">📲</span>
                                 APP 设备预设
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="切换 APP 任务的设备标识；保存并刷新后生效">❓</span>
+                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="只设置 APP 请求头，不是真实切换设备；兼容模板未经过真机采集，保存并刷新后生效">❓</span>
                             </label>
                             <select id="app-ua-preset-select" class="form-input" style="width:100%;box-sizing:border-box;padding:0 16px;border:2px solid ${theme['--panel-border']};border-radius:12px;font-size:14px;background:${theme['--panel-bg']};color:${theme['--panel-text-primary']};outline:none;height:48px;font-weight:600;">
-                                ${APP_CLIENT_PRESETS.map(preset => `<option value="${preset.id}" ${saved.appUaPreset === preset.id ? 'selected' : ''}>${utils.escapeHtml(preset.label)}</option>`).join('')}
+                                ${buildAppPresetOptions(saved.appUaPreset)}
                             </select>
-                            <div id="app-ua-preset-meta" style="margin-top:10px;font-size:11px;color:${theme['--panel-text-muted']};line-height:1.6;"></div>
+                            <div id="app-ua-preset-meta" style="margin-top:10px;font-size:11px;color:${theme['--panel-text-muted']};line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere;"></div>
                         </div>
                         <div class="form-card" style="margin-bottom:16px;padding:20px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="阅读上限 每日阅读 APP阅读上限 随机区间">
                             <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
@@ -2964,7 +3005,7 @@ function showSettingsDialog(theme) {
 
     const renderAppUaPreset = () => {
         const preset = APP_CLIENT_PRESETS.find(item => item.id === appUaPresetSelect.value) || APP_CLIENT_PRESETS[0];
-        appUaPresetMeta.textContent = `${preset.channel}/${preset.version} · ${preset.userAgent}`;
+        appUaPresetMeta.textContent = `${getAppPresetNotice(preset)}\n${preset.channel}/${preset.version}\n${preset.userAgent}`;
         appUaPresetMeta.title = preset.userAgent;
     };
     appUaPresetSelect.addEventListener('change', renderAppUaPreset);
