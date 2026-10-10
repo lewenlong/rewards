@@ -51,25 +51,37 @@ function readingHarness(target = 4, random = 0.99) {
 }
 
 test('随机批次不超过当天剩余阅读目标', async () => {
-    const h = readingHarness(4);
+    const h = readingHarness(2);
     await h.context.AppTaskRunner.runReadsDuringPause(1, 60000);
-    assert.equal(h.getReports(), 4);
-    assert.equal(h.storage.get('appReadReportedCount'), 4);
+    assert.equal(h.getReports(), 2);
+    assert.equal(h.storage.get('appReadReportedCount'), 2);
     assert.equal(h.storage.get('appReadDate'), h.today);
     assert.equal(h.state.appTasks.readRunning, false);
 });
 
-test('每次暂停随机上报 1-5 篇，跨暂停累积而不提前补齐', async () => {
+test('每次暂停随机上报 1-3 篇，跨暂停累积而不提前补齐', async () => {
     const one = readingHarness(14, 0);
     await one.context.AppTaskRunner.runReadsDuringPause(1, 60000);
     assert.equal(one.getReports(), 1);
 
-    const five = readingHarness(14, 0.99);
-    await five.context.AppTaskRunner.runReadsDuringPause(1, 60000);
-    assert.equal(five.getReports(), 5);
-    await five.context.AppTaskRunner.runReadsDuringPause(1, 60000);
-    assert.equal(five.getReports(), 10);
-    assert.equal(five.storage.has('appReadDate'), false);
+    const three = readingHarness(14, 0.99);
+    await three.context.AppTaskRunner.runReadsDuringPause(1, 60000);
+    assert.equal(three.getReports(), 3);
+    await three.context.AppTaskRunner.runReadsDuringPause(1, 60000);
+    assert.equal(three.getReports(), 6);
+    assert.equal(three.storage.has('appReadDate'), false);
+});
+
+test('暂停阅读覆盖随机区间中值，禁用阅读时不发起上报', async () => {
+    const middle = readingHarness(14, 0.5);
+    await middle.context.AppTaskRunner.runReadsDuringPause(1, 60000);
+    assert.equal(middle.getReports(), 2);
+
+    const disabled = readingHarness(14);
+    disabled.context.CONFIG.appReadEnabled = false;
+    await disabled.context.AppTaskRunner.runReadsDuringPause(1, 60000);
+    assert.equal(disabled.getReports(), 0);
+    assert.equal(disabled.storage.get('appReadReportedCount'), 0);
 });
 
 test('搜索结束后的兜底仍在一次调用中补齐全部剩余篇数', async () => {

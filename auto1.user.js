@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         Microsoft Bing Rewards Daily Task Script (微软必应奖励每日任务脚本)
-// @version      26.10.10.3
+// @version      26.10.10.4
 // @description  Brian 自动完成微软必应每日搜索任务，智能积累奖励积分。支持实时进度追踪、热搜关键词、随机行为模拟，安全高效获取 Bing Rewards 积分。
 // @author       Brian
 // @match        https://*/*
@@ -90,7 +90,7 @@ function runSearchResultReader(token) {
         const now = Date.now();
         if (!current || now >= finishAt ||
             Number(GM_getValue('searchRunGeneration', 0)) !== job.runGeneration ||
-            !GM_getValue('customClickSearchResults', false)) {
+            !GM_getValue('customClickSearchResults', true)) {
             finish();
             return;
         }
@@ -183,13 +183,13 @@ const CONFIG_SCHEMA = {
     // 每次任务随机搜索次数的上限
     maxSearches: { key: 'customMaxSearches', default: 25 },
     // 是否前台打开正常搜索结果并沿正文滚动浏览
-    clickSearchResults: { key: 'customClickSearchResults', default: false },
+    clickSearchResults: { key: 'customClickSearchResults', default: true },
     // 暂停间隔范围：每执行多少次搜索后暂停一次的区间
     pauseIntervalMin: { key: 'customPauseIntervalMin', default: 2 },
     pauseIntervalMax: { key: 'customPauseIntervalMax', default: 3 },
     // 暂停时间范围（毫秒）：每次暂停的持续时间区间
-    pauseTimeMin: { key: 'customPauseTimeMin', default: 20 * 60 * 1000 },
-    pauseTimeMax: { key: 'customPauseTimeMax', default: 30 * 60 * 1000 },
+    pauseTimeMin: { key: 'customPauseTimeMin', default: 5 * 60 * 1000 },
+    pauseTimeMax: { key: 'customPauseTimeMax', default: 20 * 60 * 1000 },
     // 搜索延迟范围（毫秒）：两次搜索之间的随机延迟区间
     minDelay: { key: 'customMinDelay', default: 15 * 1000 },
     maxDelay: { key: 'customMaxDelay', default: 30 * 1000 },
@@ -198,15 +198,15 @@ const CONFIG_SCHEMA = {
     tasksMaxRetries: { key: 'customTasksMaxRetries', default: 0 },
     tasksRetryDelay: { key: 'customTasksRetryDelay', default: 2000 },
     tasksCloseTabDelay: { key: 'customTasksCloseTabDelay', default: 1500 },
-    // 自动点击任务总开关（earn 日常任务 + dashboard 每日活动区域未完成任务共用，默认关闭）
-    autoClickTasks: { key: 'customAutoClickTasks', default: false },
+    // 自动点击任务总开关（earn 日常任务 + dashboard 每日活动区域未完成任务共用，默认开启）
+    autoClickTasks: { key: 'customAutoClickTasks', default: true },
     // APP 端每日签到开关
-    appCheckInEnabled: { key: 'customAppCheckInEnabled', default: false },
+    appCheckInEnabled: { key: 'customAppCheckInEnabled', default: true },
     // APP 端资讯阅读开关
-    appReadEnabled: { key: 'customAppReadEnabled', default: false },
+    appReadEnabled: { key: 'customAppReadEnabled', default: true },
     // APP 端资讯阅读每日上报上限区间（篇）
-    appReadDailyLimitMin: { key: 'customAppReadDailyLimitMin', default: 5 },
-    appReadDailyLimitMax: { key: 'customAppReadDailyLimitMax', default: 10 },
+    appReadDailyLimitMin: { key: 'customAppReadDailyLimitMin', default: 7 },
+    appReadDailyLimitMax: { key: 'customAppReadDailyLimitMax', default: 15 },
     // APP 请求使用的设备标识预设
     appUaPreset: { key: 'customAppUaPreset', default: 'android-16-xiaomi15' }
 };
@@ -985,7 +985,7 @@ const AppTaskRunner = {
     },
 
     /**
-     * 每次组间暂停随机上报 1-5 篇，不超过当天剩余目标；到点后不再发起新上报。
+     * 每次组间暂停随机上报 1-3 篇，不超过当天剩余目标；到点后不再发起新上报。
      * 失败不消耗重试预算（预算仅由搜索结束后的兜底流程消耗）。
      */
     async runReadsDuringPause(runGeneration, resumeAt) {
@@ -1022,7 +1022,7 @@ const AppTaskRunner = {
                 this.completeReadDailyTargetIfReached();
                 return;
             }
-            const batch = Math.min(limitLeft, 1 + Math.floor(Math.random() * 5));
+            const batch = Math.min(limitLeft, 1 + Math.floor(Math.random() * 3));
             GM_log(`APP阅读进度 ${state.appTasks.readCurrent}/${state.appTasks.readTotal}，组间暂停本次计划上报 ${batch} 篇（剩余 ${limitLeft} 篇）`);
             await this.reportReadBatch(batch, false, { runGeneration, stopAt: resumeAt });
         } finally {
@@ -2199,7 +2199,7 @@ function showSettingsDialog(theme) {
                             </div>
                             <div class="form-hint" style="margin-top:10px;font-size:12px;color:${theme['--panel-text-muted']};line-height:1.7;display:flex;align-items:flex-start;gap:6px;">
                                 <span style="flex-shrink:0;">⚠️</span>
-                                <span>建议设置为 <strong style="color:${theme['--panel-warning-text']};">20-30分钟</strong>，有效模拟人类休息间隔，显著降低账号被封风险</span>
+                                <span>默认范围为 <strong style="color:${theme['--panel-warning-text']};">5-20分钟</strong>，每次组间暂停从该区间随机选择时长</span>
                             </div>
                         </div>
                         </div>
@@ -2277,7 +2277,7 @@ function showSettingsDialog(theme) {
                                         自动点击任务
                                     </div>
                                     <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;background:${theme['--panel-bg']};padding:12px 14px;border-radius:8px;border:1px solid ${theme['--panel-border']};">
-                                        <div style="margin-bottom:8px;">总开关，控制 earn 日常任务 与 dashboard 每日活动区域未完成任务的自动点击，默认关闭。</div>
+                                        <div style="margin-bottom:8px;">总开关，控制 earn 日常任务 与 dashboard 每日活动区域未完成任务的自动点击，默认开启。</div>
                                         <div style="color:${theme['--panel-primary-color']};font-weight:500;padding:6px 8px;background:${theme['--panel-info-bg']};border-radius:6px;border-left:3px solid ${theme['--panel-primary-color']};margin-bottom:8px;">
                                             📌 任务点击仅支持新版 Microsoft Rewards 页面
                                         </div>
@@ -2400,7 +2400,7 @@ function showSettingsDialog(theme) {
                                         APP资讯阅读
                                     </div>
                                     <div style="font-size:12px;color:${theme['--panel-text-muted']};line-height:1.8;background:${theme['--panel-bg']};padding:12px 14px;border-radius:8px;border:1px solid ${theme['--panel-border']};">
-                                        每次搜索组间暂停随机上报 1-5 篇资讯（不超过当天剩余目标）；搜索结束后仍会补齐剩余篇数。
+                                        默认开启，每次搜索组间暂停随机上报 1-3 篇资讯（不超过当天剩余目标）；搜索结束后仍会补齐剩余篇数。
                                     </div>
                                 </div>
                             </label>
@@ -2420,7 +2420,7 @@ function showSettingsDialog(theme) {
                             <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;font-size:14px;color:${theme['--panel-text-primary']};font-weight:600;">
                                 <span style="font-size:16px;">📚</span>
                                 每日阅读上限区间
-                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="每日首次执行时从此区间随机选一个上限，实际仍以任务缺口为准">❓</span>
+                                <span class="help-icon" style="margin-left:auto;font-size:14px;color:${theme['--panel-text-muted']};cursor:help;" title="每日首次执行时从此区间随机选一个篇数目标，达到目标后结束阅读">❓</span>
                             </label>
                             <div style="display:flex;align-items:center;gap:10px;">
                                 <input type="number" id="app-read-limit-min-input" class="form-input" value="${saved.appReadDailyLimitMin}" min="1" max="30" step="1"
@@ -2432,7 +2432,7 @@ function showSettingsDialog(theme) {
                             </div>
                             <div class="form-hint" style="margin-top:10px;font-size:12px;color:${theme['--panel-text-muted']};line-height:1.7;display:flex;align-items:flex-start;gap:6px;">
                                 <span style="flex-shrink:0;">💡</span>
-                                <span>每日首次执行时随机选择一个上限；实际执行时取「任务缺口」与「当天随机上限」中的较小值</span>
+                                <span>默认区间为 7-15 篇；每日首次执行时随机选择篇数目标，达到目标后结束阅读，不以积分上限作为结束标志</span>
                             </div>
                         </div>
                         <div class="form-card" style="padding:20px;background:${theme['--panel-hover-bg']};border-radius:14px;border:1px solid ${theme['--panel-border']};" data-search-tags="APP授权 授权 APP端授权">
@@ -3566,22 +3566,22 @@ function showSettingsDialog(theme) {
         });
         minSearchesInput.value = 15;
         maxSearchesInput.value = 25;
-        clickSearchResultsCheckbox.checked = false;
+        clickSearchResultsCheckbox.checked = CONFIG_SCHEMA.clickSearchResults.default;
         pauseIntervalMinInput.value = 2;
         pauseIntervalMaxInput.value = 3;
-        pauseTimeMinInput.value = 20;
-        pauseTimeMaxInput.value = 30;
+        pauseTimeMinInput.value = CONFIG_SCHEMA.pauseTimeMin.default / 60000;
+        pauseTimeMaxInput.value = CONFIG_SCHEMA.pauseTimeMax.default / 60000;
         minDelayInput.value = 15;
         maxDelayInput.value = 30;
         tasksScrollDelayInput.value = 3000;
         tasksMaxRetriesInput.value = 0;
         tasksRetryDelayInput.value = 2000;
         tasksCloseTabDelayInput.value = 1500;
-        autoClickTasksCheckbox.checked = false;
-        appCheckInCheckbox.checked = false;
-        appReadCheckbox.checked = false;
-        appReadLimitMinInput.value = 5;
-        appReadLimitMaxInput.value = 10;
+        autoClickTasksCheckbox.checked = CONFIG_SCHEMA.autoClickTasks.default;
+        appCheckInCheckbox.checked = CONFIG_SCHEMA.appCheckInEnabled.default;
+        appReadCheckbox.checked = CONFIG_SCHEMA.appReadEnabled.default;
+        appReadLimitMinInput.value = CONFIG_SCHEMA.appReadDailyLimitMin.default;
+        appReadLimitMaxInput.value = CONFIG_SCHEMA.appReadDailyLimitMax.default;
         appUaPresetSelect.value = APP_CLIENT_DEFAULT_PRESET;
         renderAppUaPreset();
 
